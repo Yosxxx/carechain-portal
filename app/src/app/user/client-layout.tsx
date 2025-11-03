@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
-import { useCallback } from "react";
+
 import AppSidebar from "@/components/app-sidebar";
+import Navbar from "@/components/navbar";
 import {
   Building2,
   FileText,
@@ -10,8 +11,9 @@ import {
   KeySquare,
   FileSignature,
 } from "lucide-react";
-import Navbar from "@/components/navbar";
-import dynamic from "next/dynamic";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { useAnchorWallet, useConnection } from "@solana/wallet-adapter-react";
 import { useMemo, useState, useEffect } from "react";
 import * as anchor from "@coral-xyz/anchor";
@@ -20,9 +22,9 @@ import { PublicKey, SystemProgram } from "@solana/web3.js";
 import idl from "../../../anchor.json";
 import { findPatientPda, findPatientSeqPda } from "@/lib/pda";
 import { MAX_DID_LEN } from "@/lib/constants";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { useWalletDid } from "@/hooks/useWalletDid";
 
+// Sidebar configuration
 const SIDEBAR_ITEMS = [
   {
     label: "Overview",
@@ -37,32 +39,28 @@ const SIDEBAR_ITEMS = [
   {
     label: "Trustees",
     href: "/user/trustees",
-    icon: <ShieldCheck className="w-5 h-5" />, // symbolizes verified / trusted entities
+    icon: <ShieldCheck className="w-5 h-5" />,
   },
   {
     label: "Trustee Grant",
     href: "/user/trustee-grant",
-    icon: <Handshake className="w-5 h-5" />, // represents delegation / partnership
+    icon: <Handshake className="w-5 h-5" />,
   },
   {
     label: "Access",
     href: "/user/access",
-    icon: <KeySquare className="w-5 h-5" />, // signifies access control / permissions
+    icon: <KeySquare className="w-5 h-5" />,
   },
   {
     label: "Co-Sign",
     href: "/user/co-sign",
-    icon: <FileSignature className="w-5 h-5" />, // better than FilePen for signing
+    icon: <FileSignature className="w-5 h-5" />,
   },
 ];
 
-const WalletMultiButton = dynamic(
-  async () =>
-    (await import("@solana/wallet-adapter-react-ui")).WalletMultiButton,
-  { ssr: false }
-);
-
-// --- New Registration Component ---
+// ----------------------------------------------------------
+// Registration Form (rendered if user not registered)
+// ----------------------------------------------------------
 function RegistrationForm({
   program,
   wallet,
@@ -76,39 +74,14 @@ function RegistrationForm({
   seqPda: PublicKey;
   onRegistered: () => void;
 }) {
-  const [did, setDid] = useState("");
+  const { did, err: didErr } = useWalletDid();
   const [err, setErr] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // --- Helper: useWalletDid (from PatientsPage) ---
-  const deriveWalletDid = useCallback(() => {
-    try {
-      if (!wallet?.publicKey) throw new Error("Wallet not connected");
-      const network = process.env.NEXT_PUBLIC_SOLANA_NETWORK ?? "devnet";
-      const didStr = `did:pkh:solana:${network}:${wallet.publicKey.toBase58()}`;
-      if (didStr.length > MAX_DID_LEN)
-        throw new Error("Derived DID exceeds max length");
-      setDid(didStr);
-      setErr("");
-    } catch (e: any) {
-      setDid("");
-      setErr(e?.message ?? String(e));
-    }
-  }, [wallet]);
-
-
-
-  // Auto-set DID from wallet public key
-  useEffect(() => {
-    if (wallet?.publicKey) deriveWalletDid();
-  }, [wallet, deriveWalletDid]);
-
-
-
-  // --- Upsert logic ---
+  // Register new patient on-chain
   const handleSubmit = async () => {
-    setErr("");
     setIsSubmitting(true);
+    setErr("");
     try {
       if (!program || !wallet || !patientPda || !seqPda)
         throw new Error("Wallet/Program not ready");
@@ -117,7 +90,6 @@ function RegistrationForm({
       if (!d) throw new Error("DID could not be derived from wallet");
       if (d.length > MAX_DID_LEN)
         throw new Error(`DID max ${MAX_DID_LEN} chars`);
-      // We already have the hash bytes, just need to parse them again
 
       await program.methods
         .upsertPatient(d)
@@ -129,7 +101,7 @@ function RegistrationForm({
         })
         .rpc();
 
-      onRegistered(); // Tell layout to update
+      onRegistered();
     } catch (e: any) {
       setErr(e?.message ?? String(e));
     } finally {
@@ -145,54 +117,51 @@ function RegistrationForm({
       <p className="text-sm text-gray-500">
         To use the app, you need to create a patient profile.
       </p>
+
       <WalletMultiButton />
+
       <div className="w-full max-w-sm space-y-3">
-        {/* DID Input (Auto-filled from wallet) */}
+        {/* DID Display */}
         <div className="text-left">
           <label className="text-sm font-medium">DID (from Wallet)</label>
-          <Input
-            type="text"
-            placeholder="Your Decentralized ID (DID)"
-            value={did}
-            readOnly
-            disabled
-          />
+          <Input type="text" value={did} readOnly disabled />
         </div>
 
-        {/* Submit Button */}
+        {/* Registration Button */}
         <Button
           onClick={handleSubmit}
           disabled={isSubmitting || !did}
-          variant={"outline"}
+          variant="outline"
         >
           {isSubmitting ? "Registering..." : "Register Profile"}
         </Button>
       </div>
 
       {/* Error Display */}
-      {err && (
+      {(err || didErr) && (
         <pre className="text-sm text-red-600 whitespace-pre-wrap max-w-sm text-left">
-          {err}
+          {err || didErr}
         </pre>
       )}
     </div>
   );
 }
 
-// --- Main Layout Component ---
+// ----------------------------------------------------------
+// Main Client Layout
+// ----------------------------------------------------------
 export default function ClientLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   const wallet = useAnchorWallet();
-  const { connection } = useConnection(); // Added
+  const { connection } = useConnection();
 
-  // State to track registration
   const [isRegistered, setIsRegistered] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  // --- Anchor Setup (from PatientsPage) ---
+  // Anchor setup
   const programId = useMemo(
     () => new PublicKey(process.env.NEXT_PUBLIC_PROGRAM_ID!),
     []
@@ -213,7 +182,7 @@ export default function ClientLayout({
     [provider]
   );
 
-  // --- PDA Derivation (from PatientsPage) ---
+  // Derive PDAs
   const patientPk = wallet?.publicKey ?? null;
   const patientPda = useMemo(
     () => (patientPk ? findPatientPda(programId, patientPk) : null),
@@ -224,39 +193,37 @@ export default function ClientLayout({
     [programId, patientPda]
   );
 
-  // --- Registration Check Effect ---
+  // Check registration status
   useEffect(() => {
-    // Don't check if wallet isn't connected or program/pda isn't ready
     if (!wallet || !program || !patientPda) {
-      setIsLoading(false); // Not loading a check
-      setIsRegistered(false); // Can't be registered if not connected
+      setIsLoading(false);
+      setIsRegistered(false);
       return;
     }
 
     const checkRegistration = async () => {
       setIsLoading(true);
       try {
-        // Try to fetch the patient account. This is the check.
+        // If account fetch succeeds, patient is registered
         // @ts-expect-error anchor account typing
         await program.account.patient.fetch(patientPda);
-        // If fetch succeeds, the account exists.
         setIsRegistered(true);
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      } catch (error: any) {
-        // If it fails (e.g., "Account not found"), they are not registered.
-          console.warn("Patient account not found, user is not registered.");
-          setIsRegistered(false);
+      } catch {
+        console.warn("Patient account not found — user not registered.");
+        setIsRegistered(false);
       } finally {
         setIsLoading(false);
       }
     };
 
     checkRegistration();
-  }, [program, patientPda, wallet]); // Re-run when wallet or program is ready
+  }, [program, patientPda, wallet]);
 
-  // --- Render Logic ---
+  // ----------------------------------------------------------
+  // Render Logic
+  // ----------------------------------------------------------
 
-  // 1. Wallet Not Connected
+  // 1. Wallet disconnected
   if (!wallet) {
     return (
       <div className="flex flex-col items-center justify-center h-screen text-center gap-4 font-architekt">
@@ -269,7 +236,7 @@ export default function ClientLayout({
     );
   }
 
-  // 2. Wallet Connected, Checking Registration
+  // 2. Checking registration
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen font-architekt">
@@ -278,13 +245,12 @@ export default function ClientLayout({
     );
   }
 
-  // 3. Wallet Connected, Not Registered
-  
+  // 3. Wallet connected but not registered
   if (!isRegistered) {
     return (
       <RegistrationForm
         program={program!}
-        wallet={wallet as any} // ✅ suppress NodeWallet type requirement
+        wallet={wallet as any}
         patientPda={patientPda!}
         seqPda={seqPda!}
         onRegistered={() => setIsRegistered(true)}
@@ -292,17 +258,17 @@ export default function ClientLayout({
     );
   }
 
-  // 4. Wallet Connected and Registered
+  // 4. Wallet connected and registered
   return (
     <main>
       <Navbar />
       <div className="grid grid-cols-12 min-w-[1400px] max-w-[1400px] mx-auto gap-x-5">
-        <div className="sticky top-[6rem] h-[calc(100vh_-_6rem)] max-h-screen col-span-3">
+        <div className="sticky top-[6rem] h-[calc(100vh_-_6rem)] col-span-3">
           <AppSidebar dynamicItems={SIDEBAR_ITEMS} isAdmin={false} />
         </div>
 
         <div className="col-span-8">{children}</div>
-        <div className="sticky top-[4rem] h-fit col-span-1"></div>
+        <div className="col-span-1" />
       </div>
     </main>
   );
