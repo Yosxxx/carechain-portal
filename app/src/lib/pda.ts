@@ -1,4 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
+import * as anchor from "@coral-xyz/anchor";
 
 export const findConfigPda = (pid: PublicKey) =>
   PublicKey.findProgramAddressSync([Buffer.from("config")], pid)[0];
@@ -52,3 +53,17 @@ export function findTrusteePda(
     programId
   )[0];
 }
+
+export const findRecordPda = (
+  i: number,
+  patientPda: PublicKey,
+  programId: PublicKey
+) =>
+  PublicKey.findProgramAddressSync(
+    [
+      Buffer.from("record"),
+      patientPda.toBuffer(),
+      new anchor.BN(i).toArrayLike(Buffer, "le", 8),
+    ],
+    programId
+  )[0];
