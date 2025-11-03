@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 "use client";
@@ -15,7 +16,8 @@ import { QrCode, Search } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBanner } from "@/components/status-banner";
 import { QRCodeCanvas } from "qrcode.react";
-import { Scanner, useDevices } from "@yudiel/react-qr-scanner";
+import { checkAccountExists } from "@/lib/helper/checkAccountExists";
+import { useQrScanner } from "@/components/useQrScanner";
 
 export default function TrusteesPage() {
   const { connection } = useConnection();
@@ -24,16 +26,14 @@ export default function TrusteesPage() {
   const [trusteeStr, setTrusteeStr] = useState("");
   const [trusteeValid, setTrusteeValid] = useState<boolean | null>(null);
   const [patientExists, setPatientExists] = useState<boolean | null>(null);
+  const [pendingB64, setPendingB64] = useState("");
   const [err, setErr] = useState("");
   const [status, setStatus] = useState("");
-  const [pendingB64, setPendingB64] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  // QR Scanner modal
   const [scanModalOpen, setScanModalOpen] = useState(false);
-  const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
-  const devices = useDevices();
 
+  const { QrScanner } = useQrScanner();
+
+  // === Program and Accounts Setup ===
   const programId = useMemo(
     () => new PublicKey(process.env.NEXT_PUBLIC_PROGRAM_ID!),
     []
@@ -43,8 +43,8 @@ export default function TrusteesPage() {
     () =>
       wallet
         ? new anchor.AnchorProvider(connection, wallet, {
-          commitment: "confirmed",
-        })
+            commitment: "confirmed",
+          })
         : null,
     [connection, wallet]
   );
@@ -67,37 +67,27 @@ export default function TrusteesPage() {
       throw new Error("You have not registered as a patient yet");
   };
 
+  // === Trustee Check ===
   const checkTrusteeRegistered = useCallback(
     async (pk: PublicKey) => {
       if (!program) return;
-      try {
-        const tPda = findPatientPda(program.programId, pk);
-        // @ts-expect-error: patient type mismatch in IDL
-        const acc = await program.account.patient.fetchNullable(tPda);
-        setTrusteeValid(!!acc);
-      } catch {
-        setTrusteeValid(false);
-      }
+      const tPda = findPatientPda(program.programId, pk);
+      const exists = await checkAccountExists(program, tPda, "patient");
+      setTrusteeValid(exists);
     },
-    [program] // dependencies of the callback
+    [program]
   );
 
-
-  // === Load patient registration ===
+  // === Patient Existence Check ===
   useEffect(() => {
     (async () => {
       if (!program || !patientPda) return;
-      try {
-        // @ts-expect-error
-        const acc = await program.account.patient.fetchNullable(patientPda);
-        setPatientExists(!!acc);
-      } catch {
-        setPatientExists(false);
-      }
+      const exists = await checkAccountExists(program, patientPda, "patient");
+      setPatientExists(exists);
     })();
   }, [program, patientPda]);
 
-  // === Trustee address validation ===
+  // === Trustee Address Validation ===
   useEffect(() => {
     (async () => {
       setTrusteeValid(null);
@@ -112,7 +102,7 @@ export default function TrusteesPage() {
     })();
   }, [trusteeStr, program, checkTrusteeRegistered]);
 
-  // === Prepare multi-sig tx (Add Trustee) ===
+  // === Prepare Add Trustee Transaction ===
   const prepareAddTrustee = async () => {
     try {
       setErr("");
@@ -146,15 +136,13 @@ export default function TrusteesPage() {
         signedByPatient.serialize({ requireAllSignatures: false })
       ).toString("base64");
       setPendingB64(b64);
-
       setStatus("✅ Transaction prepared. Share QR with trustee to co-sign.");
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (e: any) {
       setErr(e.message ?? String(e));
     }
   };
 
+  // === Render ===
   return (
     <main className="my-5">
       <header className="font-architekt p-2 border rounded-xs">
@@ -180,7 +168,6 @@ export default function TrusteesPage() {
             onFocus={() => setTrusteeValid(null)}
           />
 
-          {/* Clear button */}
           <Button
             variant="destructive"
             onClick={() => {
@@ -194,7 +181,6 @@ export default function TrusteesPage() {
             Clear
           </Button>
 
-          {/* Scan QR button */}
           <Button
             variant="outline"
             onClick={() => setScanModalOpen(true)}
@@ -203,7 +189,6 @@ export default function TrusteesPage() {
             <QrCode className="w-4 h-4 mr-2" /> Scan QR
           </Button>
 
-          {/* Add Trustee button */}
           <Button
             onClick={prepareAddTrustee}
             disabled={
@@ -271,51 +256,12 @@ export default function TrusteesPage() {
         size="md"
         disablePadding
       >
-        <div className="flex flex-col items-center justify-center p-4 gap-4">
-          <p className="text-sm text-muted-foreground text-center">
-            Scan a QR code containing a trustee wallet address.
-          </p>
-
-          <div className="relative w-full aspect-square bg-black rounded overflow-hidden">
-            <Scanner
-              allowMultiple={false}
-              constraints={{
-                facingMode: "environment",
-                deviceId: selectedDevice || undefined,
-              }}
-              components={{
-                finder: true,
-              }}
-              onScan={(result) => {
-                if (result?.[0]?.rawValue) {
-                  const text = result[0].rawValue.trim();
-                  setTrusteeStr(text);
-                  setScanModalOpen(false);
-                  toast.success("QR scanned successfully!");
-                }
-              }}
-              onError={(error) => {
-                console.error(error);
-                toast.error("Camera error or permission denied");
-              }}
-            />
-          </div>
-
-          {devices.length > 1 && (
-            <select
-              className="mt-2 text-sm bg-white dark:bg-gray-800 p-2 rounded border"
-              onChange={(e) => setSelectedDevice(e.target.value || null)}
-              value={selectedDevice ?? ""}
-            >
-              <option value="">Default Camera</option>
-              {devices.map((d) => (
-                <option key={d.deviceId} value={d.deviceId}>
-                  {d.label || `Camera ${d.deviceId}`}
-                </option>
-              ))}
-            </select>
-          )}
-        </div>
+        <QrScanner
+          onResult={(text) => {
+            setTrusteeStr(text);
+            setScanModalOpen(false);
+          }}
+        />
       </GeneralModal>
     </main>
   );
