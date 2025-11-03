@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import * as anchor from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
-import { IPFS_GATEWAY } from "@/lib/constants";
+import { IPFS_GATEWAY } from "@/constants/constants";
 import { findPatientSeqPda, findRecordPda } from "@/lib/pda";
 import { Rec } from "@/types/Record";
 

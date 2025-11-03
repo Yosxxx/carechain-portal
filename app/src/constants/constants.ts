@@ -27,3 +27,6 @@ export const SCOPE_OPTIONS = [
   { label: "Read", bit: SCOPE_READ },
   { label: "Write", bit: SCOPE_WRITE },
 ];
+
+export const SEED_RECORD = Buffer.from("record");
+export const SEED_GRANT = Buffer.from("grant");

@@ -1,6 +1,6 @@
 // /lib/did.ts
 import { PublicKey } from "@solana/web3.js";
-import { MAX_DID_LEN } from "@/lib/constants";
+import { MAX_DID_LEN } from "@/constants/constants";
 
 /**
  * Pure helper to derive DID string from a Solana wallet public key.

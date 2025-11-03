@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import sodium from "libsodium-wrappers";
-import { IPFS_GATEWAY } from "@/lib/constants";
+import { IPFS_GATEWAY } from "@/constants/constants";
 import { deriveNonce } from "@/lib/helper/deriveNonce";
 
 /**

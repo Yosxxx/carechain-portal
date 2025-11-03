@@ -15,7 +15,7 @@ import {
   findPatientPda,
   findTrusteePda,
 } from "@/lib/pda";
-import { SCOPE_READ } from "@/lib/constants";
+import { SCOPE_READ } from "@/constants/constants";
 import { useQrScanner } from "@/components/useQrScanner";
 
 import { Input } from "@/components/ui/input";

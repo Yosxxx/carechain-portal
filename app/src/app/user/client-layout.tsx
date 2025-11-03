@@ -21,7 +21,7 @@ import { PublicKey, SystemProgram } from "@solana/web3.js";
 
 import idl from "../../../anchor.json";
 import { findPatientPda, findPatientSeqPda } from "@/lib/pda";
-import { MAX_DID_LEN } from "@/lib/constants";
+import { MAX_DID_LEN } from "@/constants/constants";
 import { useWalletDid } from "@/hooks/useWalletDid";
 
 // Sidebar configuration
