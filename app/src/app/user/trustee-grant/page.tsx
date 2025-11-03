@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 "use client";
 
@@ -8,7 +7,7 @@ import * as anchor from "@coral-xyz/anchor";
 import { useAnchorWallet, useConnection } from "@solana/wallet-adapter-react";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import idl from "../../../../anchor.json";
-import dynamic from "next/dynamic";
+
 import {
   findConfigPda,
   findGrantPda,
@@ -16,57 +15,53 @@ import {
   findPatientPda,
   findTrusteePda,
 } from "@/lib/pda";
+import { SCOPE_READ } from "@/lib/constants";
+import { useQrScanner } from "@/components/useQrScanner";
+
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, QrCode } from "lucide-react";
 import { GeneralModal } from "@/components/general-modal";
-import { Scanner, useDevices } from "@yudiel/react-qr-scanner";
 import { StatusBanner } from "@/components/status-banner";
-
-const WalletMultiButton = dynamic(
-  async () =>
-    (await import("@solana/wallet-adapter-react-ui")).WalletMultiButton,
-  { ssr: false }
-);
-
-const SCOPE_READ = 1;
+import { Search, QrCode } from "lucide-react";
 
 export default function TrusteeGrantPage() {
   const { connection } = useConnection();
   const wallet = useAnchorWallet();
+  const { QrScanner } = useQrScanner();
 
+  // ─── Local state ─────────────────────────────────────────────────────────────
   const [patientStr, setPatientStr] = useState("");
   const [granteeStr, setGranteeStr] = useState("");
-  const [err, setErr] = useState("");
-  const [status, setStatus] = useState("");
-  const [sig, setSig] = useState("");
-
-  const [hospital, setHospital] = useState<any>(null);
   const [trusteeOfPatient, setTrusteeOfPatient] = useState<boolean | null>(
     null
   );
+  const [hospital, setHospital] = useState<any>(null);
+  const [status, setStatus] = useState("");
+  const [err, setErr] = useState("");
+  const [sig, setSig] = useState("");
 
-  // === QR Scanner State ===
+  // QR modal state
   const [scanModalOpen, setScanModalOpen] = useState(false);
   const [scanTarget, setScanTarget] = useState<"patient" | "hospital" | null>(
     null
   );
-  const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
-  const devices = useDevices();
 
+  // ─── Program setup ───────────────────────────────────────────────────────────
   const programId = useMemo(
     () => new PublicKey(process.env.NEXT_PUBLIC_PROGRAM_ID!),
     []
   );
+
   const provider = useMemo(
     () =>
       wallet
         ? new anchor.AnchorProvider(connection, wallet, {
-          commitment: "confirmed",
-        })
+            commitment: "confirmed",
+          })
         : null,
     [connection, wallet]
   );
+
   const program = useMemo(
     () => (provider ? new anchor.Program(idl as anchor.Idl, provider) : null),
     [provider]
@@ -74,7 +69,7 @@ export default function TrusteeGrantPage() {
 
   const trusteePk = wallet?.publicKey ?? null;
 
-  // ---- Verify trustee relationship to patient ----
+  // ─── Check if wallet is a valid trustee of the given patient ────────────────
   useEffect(() => {
     (async () => {
       setTrusteeOfPatient(null);
@@ -85,36 +80,37 @@ export default function TrusteeGrantPage() {
         const trusteePda = findTrusteePda(programId, patientPk, trusteePk);
         // @ts-expect-error
         const acc = await program.account.trustee.fetchNullable(trusteePda);
-        if (!acc || acc.revoked) setTrusteeOfPatient(false);
-        else setTrusteeOfPatient(true);
+        setTrusteeOfPatient(!!acc && !acc.revoked);
       } catch {
         setTrusteeOfPatient(false);
       }
     })();
   }, [program, programId, patientStr, trusteePk]);
 
-  // ---- Verify hospital authority ----
+  // ─── Verify that the grantee is a registered hospital ───────────────────────
   useEffect(() => {
     (async () => {
       setHospital(null);
       if (!program || !granteeStr.trim()) return;
+
       try {
         const granteePk = new PublicKey(granteeStr.trim());
         const hospitalPda = findHospitalPda(program.programId, granteePk);
         // @ts-expect-error
         const acc = await program.account.hospital.fetchNullable(hospitalPda);
-        if (!acc) return;
-        setHospital({
-          authority: granteePk.toBase58(),
-          name: acc.name,
-          createdAt: Number(acc.createdAt),
-        });
+        if (acc)
+          setHospital({
+            authority: granteePk.toBase58(),
+            name: acc.name,
+            createdAt: Number(acc.createdAt),
+          });
       } catch {
         setHospital(null);
       }
     })();
   }, [program, granteeStr]);
 
+  // ─── Pre-flight validation ──────────────────────────────────────────────────
   const ensureReady = () => {
     if (!program || !wallet) throw new Error("Wallet/program not ready");
     if (!trusteePk) throw new Error("Connect trustee wallet first");
@@ -122,7 +118,7 @@ export default function TrusteeGrantPage() {
     if (!granteeStr.trim()) throw new Error("Enter hospital authority pubkey");
   };
 
-  // === Trustee directly creates READ grant ===
+  // ─── Submit trustee READ grant transaction ──────────────────────────────────
   const submitGrantDirect = async () => {
     try {
       setErr("");
@@ -170,22 +166,7 @@ export default function TrusteeGrantPage() {
     }
   };
 
-  // === Handle QR scan results ===
-  const handleScanResult = (result: any) => {
-    if (!result?.[0]?.rawValue) return;
-    const text = result[0].rawValue.trim();
-
-    if (scanTarget === "patient") {
-      setPatientStr(text);
-      setStatus("✅ Patient address filled from QR");
-    } else if (scanTarget === "hospital") {
-      setGranteeStr(text);
-      setStatus("✅ Hospital address filled from QR");
-    }
-
-    setScanModalOpen(false);
-  };
-
+  // ─── UI ─────────────────────────────────────────────────────────────────────
   return (
     <main className="mx-auto mt-5">
       <header className="font-architekt p-2 border rounded-xs">
@@ -194,7 +175,7 @@ export default function TrusteeGrantPage() {
         </div>
       </header>
 
-      {/* ─── Patient Wallet Input + Scan ─── */}
+      {/* Patient wallet input */}
       <div className="flex items-center gap-x-2 mt-2">
         <Input
           placeholder="Patient wallet address"
@@ -212,13 +193,13 @@ export default function TrusteeGrantPage() {
         </Button>
       </div>
 
+      {/* Trustee verification status */}
       <div className="mt-2">
         {trusteeOfPatient === false && (
           <StatusBanner type="error">
             ❌ You are not a registered trustee for this patient.
           </StatusBanner>
         )}
-
         {trusteeOfPatient === true && (
           <StatusBanner type="success">
             ✅ You are an active trustee for this patient.
@@ -226,7 +207,7 @@ export default function TrusteeGrantPage() {
         )}
       </div>
 
-      {/* ─── Hospital Input + Scan ─── */}
+      {/* Hospital authority input */}
       <div className="flex items-center gap-x-2 mt-2">
         <Input
           placeholder="Hospital authority pubkey"
@@ -244,16 +225,15 @@ export default function TrusteeGrantPage() {
         </Button>
       </div>
 
-      {/* ─── Hospital Verification Banner ─── */}
+      {/* Hospital verification banner */}
       <div className="mt-2">
         {hospital && (
           <StatusBanner type="success">
             <span className="font-medium font-mono">
-              ✅ Hospital is verified on chain .
+              ✅ Hospital verified on-chain.
             </span>
           </StatusBanner>
         )}
-
         {!hospital && granteeStr.trim() && (
           <StatusBanner type="warning">
             ⚠️ No hospital found for this authority.
@@ -261,17 +241,15 @@ export default function TrusteeGrantPage() {
         )}
       </div>
 
-      {/* ─── Submit Grant ─── */}
-      <div className="space-x-2">
+      {/* Actions */}
+      <div className="space-x-2 mt-2">
         <Button
           onClick={submitGrantDirect}
           disabled={!patientStr || !granteeStr || trusteeOfPatient !== true}
-          variant={"outline"}
-          className="mt-2"
+          variant="outline"
         >
           Create Grant (Trustee direct)
         </Button>
-
         <Button
           variant="destructive"
           onClick={() => {
@@ -288,26 +266,25 @@ export default function TrusteeGrantPage() {
         </Button>
       </div>
 
+      {/* Status + Signature */}
       <div className="mt-2">
         {status && (
           <StatusBanner type={status.startsWith("✅") ? "success" : "info"}>
             {status}
           </StatusBanner>
         )}
-
-        <div className="mt-2">
-          {sig && (
+        {sig && (
+          <div className="mt-2">
             <StatusBanner type="info">
               <span className="font-medium">Tx Signature:</span>{" "}
               <span className="font-mono">{sig}</span>
             </StatusBanner>
-          )}
-        </div>
+          </div>
+        )}
+        {err && <StatusBanner type="error">⚠️ {err}</StatusBanner>}
       </div>
 
-      {err && <StatusBanner type="error">⚠️ {err}</StatusBanner>}
-
-      {/* ─── QR Scanner Modal ─── */}
+      {/* QR Scanner modal */}
       <GeneralModal
         open={scanModalOpen}
         onOpenChange={setScanModalOpen}
@@ -319,43 +296,13 @@ export default function TrusteeGrantPage() {
         size="md"
         disablePadding
       >
-        <div className="flex flex-col items-center justify-center p-4 gap-4">
-          <p className="text-sm text-muted-foreground text-center">
-            {scanTarget === "patient"
-              ? "Scan a QR code containing the patient's wallet address."
-              : "Scan a QR code containing the hospital authority's pubkey."}
-          </p>
-
-          <div className="relative w-full aspect-square bg-black rounded overflow-hidden">
-            <Scanner
-              allowMultiple={false}
-              constraints={{
-                facingMode: "environment",
-                deviceId: selectedDevice || undefined,
-              }}
-              onScan={handleScanResult}
-              onError={(error) => {
-                console.error(error);
-                setStatus("⚠️ Camera error or permission denied");
-              }}
-            />
-          </div>
-
-          {devices.length > 1 && (
-            <select
-              className="mt-2 text-sm bg-white dark:bg-gray-800 p-2 rounded border"
-              onChange={(e) => setSelectedDevice(e.target.value || null)}
-              value={selectedDevice ?? ""}
-            >
-              <option value="">Default Camera</option>
-              {devices.map((d) => (
-                <option key={d.deviceId} value={d.deviceId}>
-                  {d.label || `Camera ${d.deviceId}`}
-                </option>
-              ))}
-            </select>
-          )}
-        </div>
+        <QrScanner
+          onResult={(text) => {
+            if (scanTarget === "patient") setPatientStr(text);
+            else if (scanTarget === "hospital") setGranteeStr(text);
+            setScanModalOpen(false);
+          }}
+        />
       </GeneralModal>
     </main>
   );
