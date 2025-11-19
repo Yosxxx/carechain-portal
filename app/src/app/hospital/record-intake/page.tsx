@@ -191,7 +191,7 @@ export default function Page() {
       if (!program || !patientPk) {
         setPatientAccountOk(null);
         if (record?.patient_pubkey) {
-          setPatientCheckStatus("❌ Invalid Pubkey Format");
+          setPatientCheckStatus("❌ Invalid Pubkey format");
         } else {
           setPatientCheckStatus(null);
         }

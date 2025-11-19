@@ -20,6 +20,7 @@
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-separator": "^1.1.7",
     "@radix-ui/react-slot": "^1.2.3",
+    "@radix-ui/react-tooltip": "^1.2.8",
     "@solana-program/memo": "^0.9.0",
     "@solana/kit": "^4.0.0",
     "@solana/react": "^4.0.0",
