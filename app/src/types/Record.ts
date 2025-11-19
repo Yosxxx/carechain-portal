@@ -8,6 +8,7 @@ export type Rec = {
   createdAt: string;
   hospital_name: string;
   doctor_name: string;
+  medications?: string[];
   diagnosis: string;
   keywords: string;
   description: string;
@@ -19,6 +20,7 @@ export type MedicalRecordIntake = {
   hospital_pubkey: string | null;
   hospital_name: string | null;
   doctor_name: string;
+  medications?: string[];
   diagnosis: string;
   keywords: string;
   description: string;

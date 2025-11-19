@@ -47,7 +47,7 @@ export default function NavBar() {
               size="icon"
               className="rounded-xs hover:cursor-pointer p-5"
             >
-              <QrCode className="w-6 h-6" />
+              <QrCode className="w-8 h-8" />
             </Button>
             <WalletMultiButton className="min-w-[160px]" />
           </div>

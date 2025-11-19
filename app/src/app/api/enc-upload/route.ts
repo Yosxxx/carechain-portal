@@ -48,6 +48,9 @@ export async function POST(req: Request) {
   let doctor_name = "";
   let diagnosis = "";
   let keywords = "";
+
+  // eslint-disable-next-line prefer-const
+  let medications: string[] = [];
   let description = "";
 
   try {
@@ -169,12 +172,12 @@ export async function POST(req: Request) {
     });
 
     const blob = new Blob([recordEnc], { type: "application/octet-stream" });
-    const fileUpload = new File([blob], "record.enc", {
-      type: "application/octet-stream",
-    });
 
-    // @ts-expect-error Node File vs Web File
-    const uploadFile = await pinata.upload.public.file(fileUpload).name("record.enc");
+    const fileUpload: any = Object.assign(blob, { name: "record.enc" });
+
+    const uploadFile = await pinata.upload.public
+      .file(fileUpload)
+      .name("record.enc");
     cidEnc = uploadFile.cid;
 
     const meta = {
@@ -191,11 +194,13 @@ export async function POST(req: Request) {
       },
       original_content_type: contentType,
       created_at: Math.floor(Date.now() / 1000),
+
       hospital_name,
       doctor_name,
       diagnosis,
       keywords,
       description,
+      medications,
     };
 
     const uploadMeta = await pinata.upload.public.json(meta).name("meta.json");

@@ -56,6 +56,7 @@ export async function fetchPatientRecords(
       doctor_name: meta.doctor_name || rec.doctorName || "",
       diagnosis: meta.diagnosis || "",
       keywords: meta.keywords || "",
+      medications: meta.medications || [],
       description: meta.description || "",
       txSignature: rec.txSignature ?? "",
     });

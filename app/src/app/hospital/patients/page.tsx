@@ -2,13 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { useState, useMemo, useEffect } from "react";
-import {
-  Search,
-  ChevronsUpDown,
-  ExternalLink,
-  QrCodeIcon,
-  X,
-} from "lucide-react";
+import { Search, ChevronsUpDown, ExternalLink, QrCodeIcon } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -44,6 +38,7 @@ import { fetchPatientRecords } from "@/lib/helper/fetchPatientRecords";
 import { decryptAndDownloadHelper } from "@/lib/helper/decryptAndDownload";
 import { deriveAttachmentStatus } from "@/lib/helper/attachments";
 import { filterRecords, paginate } from "@/lib/helper/recordFilters";
+import { GeneralModal } from "@/components/general-modal";
 
 export default function Page() {
   // ────────────────────────────────────────────────
@@ -386,25 +381,23 @@ export default function Page() {
 
       {/* ── QR Scanner ───────────────────────── */}
       {scanning && (
-        <div className="fixed inset-0 bg-black/80 z-50 flex flex-col items-center justify-center">
-          <div className="bg-background border border-border rounded-xl shadow-xl">
+        <GeneralModal
+          open={scanning}
+          onOpenChange={setScanning}
+          title="Scan Patient Pubkey"
+          size="md"
+          disablePadding
+        >
+          <div className="p-4">
             <QrScanner
-              label="Scan Patient QR"
-              onResult={(value) => {
-                setPatientInput(value);
+              onResult={(text) => {
+                setPatientInput(text);
                 setScanning(false);
-                toast.success("QR decoded successfully.");
+                toast.success("QR decoded successfully");
               }}
             />
           </div>
-          <Button
-            variant="destructive"
-            className="mt-4"
-            onClick={() => setScanning(false)}
-          >
-            <X className="w-4 h-4 mr-2" /> Close Scanner
-          </Button>
-        </div>
+        </GeneralModal>
       )}
     </main>
   );

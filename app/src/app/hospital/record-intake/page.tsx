@@ -4,7 +4,12 @@
 // --- React & Next.js Imports ---
 import { useState, useEffect, ChangeEvent, useMemo } from "react";
 import Image from "next/image";
-
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  TooltipProvider,
+} from "@/components/ui/tooltip";
 // --- Library Imports ---
 import JSZip from "jszip";
 import { toast } from "sonner";
@@ -42,6 +47,8 @@ import {
   findGrantPda,
 } from "@/lib/pda";
 import { MedicalRecordIntake, HospitalData } from "@/types/Record";
+import { Label } from "@/components/ui/label";
+import Link from "next/link";
 
 // ========================================================================
 //  UTILITY FUNCTIONS
@@ -86,6 +93,9 @@ async function encUpload(
     fd.append("diagnosis", record.diagnosis || "");
     fd.append("keywords", record.keywords || "");
     fd.append("description", record.description || "");
+    if (record?.medications) {
+      fd.append("medications", JSON.stringify(record.medications));
+    }
   }
 
   const r = await fetch("/api/enc-upload", { method: "POST", body: fd });
@@ -107,6 +117,95 @@ export default function Page() {
   const [previews, setPreviews] = useState<string[]>([]);
   const [images, setImages] = useState<{ name: string; blob: Blob }[]>([]);
   const [hospitalData, setHospitalData] = useState<HospitalData | null>(null);
+
+  const [medSearch, setMedSearch] = useState("");
+  const [medSuggestions, setMedSuggestions] = useState<string[]>([]);
+  const [medLoading, setMedLoading] = useState(false);
+  const [medications, setMedications] = useState<string[]>([]);
+  const [origMedications, setOrigMedications] = useState<string[]>([]);
+
+  // =============== DEBOUNCED MEDICATION SUGGESTIONS ==================
+  useEffect(() => {
+    if (medSearch.trim().length < 3) {
+      setMedSuggestions([]);
+      return;
+    }
+
+    let active = true;
+    const timer = setTimeout(async () => {
+      try {
+        setMedLoading(true);
+
+        const spell = await fetch(
+          `https://rxnav.nlm.nih.gov/REST/spellingsuggestions.json?name=${medSearch}`
+        ).then((r) => r.json());
+
+        const list: string[] =
+          spell?.suggestionGroup?.suggestionList?.suggestion || [];
+
+        const terms = list.length > 0 ? list : [medSearch];
+
+        const collected: string[] = [];
+        for (const t of terms.slice(0, 5)) {
+          const r = await fetch(
+            `https://rxnav.nlm.nih.gov/REST/drugs.json?name=${t}`
+          );
+          const j = await r.json();
+
+          const groups = j.drugGroup?.conceptGroup || [];
+          const names = groups
+            .flatMap((g: any) => g.conceptProperties || [])
+            .map((c: any) => c.name);
+
+          collected.push(...names);
+        }
+
+        const finalList = [...new Set(collected)].slice(0, 20);
+        if (active) setMedSuggestions(finalList);
+      } catch {
+        if (active) setMedSuggestions([]);
+      } finally {
+        if (active) setMedLoading(false);
+      }
+    }, 300);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [medSearch]);
+
+  // =============== MEDICATION ACTIONS ==================
+  const addMedication = (raw: string) => {
+    if (!raw) return;
+    if (medications.includes(raw)) return;
+
+    const formatted = raw
+      .trim()
+      .split(" ")
+      .map((w) => w[0].toUpperCase() + w.slice(1))
+      .join(" ");
+
+    const updated = [...medications, formatted];
+    setMedications(updated);
+    setRecord((prev) => (prev ? { ...prev, medications: updated } : prev));
+
+    setMedSearch("");
+    setMedSuggestions([]);
+  };
+
+  const removeMedication = (name: string) => {
+    const updated = medications.filter((m) => m !== name);
+    setMedications(updated);
+    setRecord((prev) => (prev ? { ...prev, medications: updated } : prev));
+  };
+
+  const revertMedications = () => {
+    setMedications(origMedications);
+    setRecord((prev) =>
+      prev ? { ...prev, medications: origMedications } : prev
+    );
+  };
 
   // --- UI & Status State ---
   const [view, setView] = useState<"form" | "loading" | "qr">("form");
@@ -291,6 +390,8 @@ export default function Page() {
       setRecord(data);
       setOriginal(data);
       setZipName(file.name);
+      setMedications(data.medications || []);
+      setOrigMedications(data.medications || []);
 
       // Extract images
       const imgs = await Promise.all(
@@ -590,7 +691,7 @@ export default function Page() {
   // ========================================================================
 
   return (
-    <main className="my-6 min-h-[70vh] flex items-center justify-center">
+    <main className="min-h-[70vh] flex items-center justify-center">
       {/* ========== 1. LOADING VIEW ========== */}
       {view === "loading" && (
         <div className="flex flex-col items-center justify-center gap-4 text-center">
@@ -611,14 +712,25 @@ export default function Page() {
 
       {/* ========== 3. FORM VIEW ========== */}
       {view === "form" && (
-        <div className="w-full mx-auto">
-          <Input
-            id="zip-input"
-            type="file"
-            accept=".zip"
-            onChange={handleFileUpload}
-            className="mb-5"
-          />
+        <div className="w-full mx-auto mb-5">
+          <div className="w-full text-center space-y-5">
+            <div className="text-2xl font-bold">
+              Upload A Medical Record Bundle
+            </div>
+            <p>
+              Needs To Be Formated. Head{" "}
+              <Link href={"/record"} className="underline">
+                Here.
+              </Link>
+            </p>
+            <Input
+              id="zip-input"
+              type="file"
+              accept=".zip"
+              onChange={handleFileUpload}
+              className="w-fit mx-auto mb-5"
+            />
+          </div>
 
           {/* --- STATUS BANNERS --- */}
           <div className="space-y-2 mb-4">
@@ -654,7 +766,7 @@ export default function Page() {
                   </h2>
 
                   <div>
-                    <label className="font-medium">Patient Pubkey</label>
+                    <Label className="mb-1">Patient Pubkey</Label>
                     <div className="flex gap-2">
                       <Input
                         value={record.patient_pubkey ?? ""}
@@ -694,7 +806,7 @@ export default function Page() {
                   <div className="flex flex-col gap-y-5">
                     {/* Doctor Name */}
                     <div>
-                      <label className="font-medium">Doctor Name</label>
+                      <Label className="mb-1">Doctor Name</Label>
                       <div className="flex gap-2">
                         <Input
                           value={record.doctor_name ?? ""}
@@ -713,7 +825,7 @@ export default function Page() {
 
                     {/* Hospital Pubkey */}
                     <div>
-                      <label className="font-medium">Hospital Pubkey</label>
+                      <Label className="mb-1">Hospital Pubkey</Label>
                       <div className="flex gap-2">
                         <Input
                           value={record.hospital_pubkey ?? ""}
@@ -735,7 +847,7 @@ export default function Page() {
 
                     {/* Hospital Name */}
                     <div>
-                      <label className="font-medium">Hospital Name</label>
+                      <Label className="mb-1">Hospital Name</Label>
                       <div className="flex gap-2">
                         <Input
                           value={record.hospital_name ?? ""}
@@ -764,7 +876,7 @@ export default function Page() {
                   <div className="flex flex-col gap-4">
                     {/* Diagnosis */}
                     <div>
-                      <label className="font-medium">Diagnosis</label>
+                      <Label className="mb-1">Diagnosis</Label>
                       <div className="flex gap-2">
                         <Textarea
                           value={record.diagnosis ?? ""}
@@ -784,7 +896,7 @@ export default function Page() {
 
                     {/* Keywords */}
                     <div>
-                      <label className="font-medium">Keywords</label>
+                      <Label className="mb-1">Keywords</Label>
                       <div className="flex gap-2">
                         <Textarea
                           value={record.keywords ?? ""}
@@ -802,9 +914,97 @@ export default function Page() {
                       </div>
                     </div>
 
+                    {/* Input */}
+                    <div className="relative">
+                      <Label className="mb-1">Medications</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="Search Medication..."
+                          value={medSearch}
+                          onChange={(e) => setMedSearch(e.target.value)}
+                        />
+                        <Button variant="outline" onClick={revertMedications}>
+                          Revert
+                        </Button>
+                      </div>
+
+                      {medLoading && (
+                        <div className="absolute bg-card mt-2 p-2 border text-sm flex gap-2 items-center">
+                          <div className="w-3 h-3 border-2 border-t-transparent border-primary rounded-full animate-spin" />
+                          Searching...
+                        </div>
+                      )}
+
+                      {medSuggestions.length > 0 && (
+                        <div className="absolute bg-card mt-2 w-full border shadow z-20 max-h-56 overflow-y-auto">
+                          {medSuggestions.map((s) => (
+                            <div
+                              key={s}
+                              className="px-3 py-2 hover:bg-accent cursor-pointer text-sm"
+                              onClick={() => addMedication(s)}
+                            >
+                              {s}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Pills */}
+                    {medications.length > 0 && (
+                      <div className="flex flex-col gap-2">
+                        <div className="grid grid-cols-4 gap-2">
+                          {medications.map((m, i) => (
+                            <TooltipProvider key={i}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div
+                                    onClick={() => removeMedication(m)}
+                                    className="
+                  w-full h-10 border rounded-xs cursor-pointer select-none
+                  bg-card hover:bg-destructive hover:text-white
+                  flex items-center justify-center text-center
+                  transition overflow-hidden
+                "
+                                  >
+                                    <span className="truncate w-full px-1">
+                                      {m}
+                                    </span>
+                                  </div>
+                                </TooltipTrigger>
+
+                                <TooltipContent
+                                  side="top"
+                                  className="rounded-xs"
+                                >
+                                  <p>{m}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          ))}
+                        </div>
+
+                        {/* Buttons */}
+                        <div className="flex gap-2 mt-1">
+                          <Button
+                            variant="destructive"
+                            onClick={() => {
+                              setMedications([]);
+                              setRecord((prev) =>
+                                prev ? { ...prev, medications: [] } : prev
+                              );
+                            }}
+                            className="w-fit"
+                          >
+                            Clear All
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Description */}
                     <div>
-                      <label className="font-medium">Description</label>
+                      <Label className="mb-1">Description</Label>
                       <div className="flex gap-2">
                         <Textarea
                           value={record.description ?? ""}
@@ -851,6 +1051,7 @@ export default function Page() {
                       onClick={handleSubmitOnChain}
                       disabled={!readyToSubmit || isSubmitting}
                       className="flex-1"
+                      variant={"outline"}
                     >
                       {isSubmitting ? "Submitting..." : "Submit On-Chain"}
                     </Button>
@@ -897,7 +1098,7 @@ function ImagePreview({ src }: { src: string }) {
           fill
           className="object-cover transition-transform duration-200 group-hover:scale-105"
         />
-        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-sm font-medium">
+        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-sm mb-1">
           View
         </div>
       </div>

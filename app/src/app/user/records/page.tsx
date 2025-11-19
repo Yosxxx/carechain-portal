@@ -30,6 +30,12 @@ import { decryptAndDownloadHelper } from "@/lib/helper/decryptAndDownload";
 import { fetchPatientRecords } from "@/lib/helper/fetchPatientRecords";
 import { filterRecords, paginate } from "@/lib/helper/recordFilters";
 import { showLoading, showSuccess, showError } from "@/lib/helper/toast";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  TooltipProvider,
+} from "@/components/ui/tooltip";
 
 export default function Page() {
   const { publicKey } = useWallet();
@@ -189,8 +195,8 @@ export default function Page() {
       {!loading && (
         <div className="flex flex-col gap-y-4 mt-5 mb-5">
           {paginated.map((rec) => (
-            <Collapsible key={rec.pda} className="border p-4 rounded-xs">
-              <CollapsibleTrigger className="w-full flex justify-between text-left items-center gap-4">
+            <Collapsible key={rec.pda} className="border p-4 rounded-xs ">
+              <CollapsibleTrigger className="w-full flex justify-between text-left items-center gap-4 hover:cursor-pointer">
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold truncate text-sm">
                     {rec.diagnosis || "Untitled Diagnosis"}
@@ -225,6 +231,36 @@ export default function Page() {
                 </div>
 
                 <Separator className="my-2" />
+
+                {/* --- Medications --- */}
+                {rec.medications && rec.medications.length > 0 && (
+                  <div className="flex flex-col gap-2">
+                    <div className="text-xs font-medium">Medications</div>
+
+                    <TooltipProvider>
+                      <div className="grid grid-cols-4 gap-2">
+                        {rec.medications.map((m, i) => (
+                          <Tooltip key={i}>
+                            <TooltipTrigger
+                              asChild
+                              className="hover:cursor-pointer"
+                            >
+                              <div className="w-full h-10 border rounded-xs hover:bg-card flex items-center justify-center text-center cursor-default select-none overflow-hidden ">
+                                <span className="truncate w-full px-1">
+                                  {m}
+                                </span>
+                              </div>
+                            </TooltipTrigger>
+
+                            <TooltipContent side="top" className="rounded-xs">
+                              <p>{m}</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        ))}
+                      </div>
+                    </TooltipProvider>
+                  </div>
+                )}
 
                 {/* --- Description --- */}
                 {rec.description && (
