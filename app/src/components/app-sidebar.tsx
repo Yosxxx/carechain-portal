@@ -62,7 +62,7 @@ export default function AppSidebar({
   const isActive = (href: string) => pathname === `${prefix}${href}`;
 
   return (
-    <aside className="sticky top-[6rem] flex h-[calc(100vh-6rem)] flex-col justify-between py-5 text-sm">
+    <aside className="sticky top-[6rem] flex h-[88vh] flex-col justify-between py-5 text-sm">
       {/* ==================== Dynamic Section ==================== */}
       <div className="flex flex-col">
         {dynamicItems.map((item, index) => {
@@ -72,7 +72,7 @@ export default function AppSidebar({
               <Button
                 variant="ghost"
                 className={`
-                  w-full justify-start gap-x-2 px-4 text-muted-foreground
+                  w-full justify-start gap-x-2 px-4 text-muted-foreground hover:cursor-pointer
                   ${
                     active
                       ? "text-primary font-medium bg-card dark:text-sidebar-accent-foreground "
@@ -103,7 +103,7 @@ export default function AppSidebar({
                   <Button
                     variant="ghost"
                     className={`
-                      w-full justify-start gap-x-2 px-4 text-muted-foreground
+                      w-full justify-start gap-x-2 px-4 text-muted-foreground hover:cursor-pointer
                       ${
                         active
                           ? "text-primary font-medium bg-card  dark:text-sidebar-accent-foreground"
@@ -124,7 +124,7 @@ export default function AppSidebar({
                 <Button
                   type="submit"
                   variant="ghost"
-                  className="w-full justify-start gap-x-2 px-4 text-muted-foreground hover:text-foreground dark:hover:text-white"
+                  className="w-full justify-start gap-x-2 px-4 text-muted-foreground hover:text-foreground dark:hover:text-white hover:cursor-pointer"
                 >
                   <LogOut className="w-4 h-4" /> Logout
                 </Button>
@@ -144,7 +144,7 @@ export default function AppSidebar({
                   <Button
                     variant="ghost"
                     className={`
-                      w-full justify-start gap-x-2 px-4 text-muted-foreground
+                      w-full justify-start gap-x-2 px-4 text-muted-foreground hover:cursor-pointer
                       ${
                         active
                           ? "text-primary font-medium bg-card  dark:text-sidebar-accent-foreground"

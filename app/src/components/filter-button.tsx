@@ -29,11 +29,11 @@ export function FilterButton({
           <SlidersHorizontal className="w-4 h-4" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-44 p-2 space-y-1">
+      <PopoverContent className="w-50 mt-2 p-2 space-y-1 dark:bg-background">
         {options.map((opt) => (
           <Button
             key={opt.label}
-            variant={opt.value === selected ? "default" : "ghost"}
+            variant={opt.value === selected ? "outline" : "ghost"}
             className="w-full justify-start"
             onClick={() => {
               onChange(opt.value);

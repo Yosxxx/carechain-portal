@@ -1,7 +1,6 @@
 import SolanaProvider from "@/components/solana-provider";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
-// src/app/layout.tsx
 export const dynamic = "force-dynamic";
 
 export default function RootLayout({

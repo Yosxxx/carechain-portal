@@ -1,5 +1,6 @@
 /* eslint-disable react/jsx-no-comment-textnodes */
 "use client";
+
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -7,9 +8,11 @@ import Link from "next/link";
 import { AdminLoginPassword } from "@/action/AdminLogin";
 import { useState } from "react";
 import { Spinner } from "@/components/ui/spinner";
+import { StatusBanner } from "@/components/status-banner";
 
 export default function Page() {
   const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -17,19 +20,24 @@ export default function Page() {
 
     try {
       setLoading(true);
+      setErr("");
       await AdminLoginPassword(formData);
     } catch (error: unknown) {
       if (error instanceof Error) {
         console.error(error);
+        setErr(error.message || "Login failed.");
+      } else {
+        setErr("Login failed.");
       }
       setLoading(false);
     }
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center font-architekt">
+    <div className="flex min-h-screen items-center justify-center">
       <form onSubmit={handleSubmit} className="min-w-md max-w-md font-bold">
         <div className="p-5 border text-xl">// ADMIN LOGIN</div>
+
         <div className="flex flex-col gap-y-5 p-5 border-b border-l border-r">
           <div>
             <Label htmlFor="email" className="mb-2 font-bold">
@@ -42,6 +50,7 @@ export default function Page() {
               className="font-inter font-normal"
             />
           </div>
+
           <div>
             <Label htmlFor="password" className="mb-2 font-bold">
               Password
@@ -53,12 +62,13 @@ export default function Page() {
               className="font-inter font-normal"
             />
           </div>
+
+          {/* ❌ Error Banner */}
+          {err && <StatusBanner type="error">❌ {err}</StatusBanner>}
+
           <div className="flex flex-col gap-y-5">
-            {/* <Button variant={"outline"} className="font-bold">
-              Passwordless Login
-            </Button> */}
             <Button
-              className={`font-bold`}
+              className="font-bold hover:cursor-pointer"
               type="submit"
               disabled={loading}
               variant={"outline"}
@@ -73,9 +83,13 @@ export default function Page() {
               )}
             </Button>
           </div>
+
           <div className="font-inter text-sm text-muted-foreground font-normal">
             Want to become apart of CareChain?{" "}
-            <Link href={"#"} className="text-white font-bold">
+            <Link
+              href={"#"}
+              className="text-white font-bold hover:cursor-pointer"
+            >
               Register.
             </Link>
           </div>

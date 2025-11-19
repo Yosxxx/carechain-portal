@@ -20,7 +20,7 @@ export default function NavBar() {
   return (
     <>
       <nav className="sticky top-0 border-b dark:bg-background bg-white z-50">
-        <main className="max-w-[1400px] mx-auto flex items-center justify-between py-4 px-6">
+        <main className="max-w-[1400px] mx-auto flex items-center justify-between py-4">
           {/* ─── Logo Section ─── */}
           <Link className="flex items-center gap-x-3" href="/">
             <Image
@@ -31,7 +31,7 @@ export default function NavBar() {
               className="object-contain select-none"
               priority
             />
-            <h1 className="text-2xl font-architekt font-bold">CARECHAIN</h1>
+            <h1 className="text-2xl font-sans font-bold">CARECHAIN</h1>
           </Link>
 
           {/* ─── Wallet and QR Section ─── */}
@@ -43,11 +43,11 @@ export default function NavBar() {
                 }
                 setShowQR(true);
               }}
-              variant="secondary"
+              variant="outline"
               size="icon"
-              className="rounded-lg"
+              className="rounded-xs hover:cursor-pointer p-5"
             >
-              <QrCode className="w-5 h-5" />
+              <QrCode className="w-6 h-6" />
             </Button>
             <WalletMultiButton className="min-w-[160px]" />
           </div>
@@ -62,7 +62,7 @@ export default function NavBar() {
         copyable
       >
         {qrData && (
-          <div className="border rounded-lg p-3 bg-white dark:bg-card">
+          <div className="border rounded-lg p-3 dark:bg-card">
             <QRCodeCanvas value={qrData} size={200} includeMargin />
           </div>
         )}

@@ -1,15 +1,16 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState, useEffect, ChangeEvent, useMemo } from "react";
-import JSZip from "jszip";
-import Image from "next/image";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { GetHospitalData } from "@/action/GetHospitalData";
-import { QRCodeCanvas } from "qrcode.react";
-import { toast } from "sonner";
 
-// --- SOLANA IMPORTS ---
+// --- React & Next.js Imports ---
+import { useState, useEffect, ChangeEvent, useMemo } from "react";
+import Image from "next/image";
+
+// --- Library Imports ---
+import JSZip from "jszip";
+import { toast } from "sonner";
+import bs58 from "bs58";
+
+// --- Solana Imports ---
 import * as anchor from "@coral-xyz/anchor";
 import {
   useConnection,
@@ -22,7 +23,17 @@ import {
   Transaction,
   type TransactionInstruction,
 } from "@solana/web3.js";
+
+// --- Local Imports ---
 import idl from "../../../../anchor.json";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { StatusBanner } from "@/components/status-banner";
+import { GeneralModal } from "@/components/general-modal";
+import { QrDisplay } from "@/components/qr-display";
+import { GetHospitalData } from "@/action/GetHospitalData";
+import { refreshCosignTxHelper } from "@/lib/helper/refreshCosignTx";
 import {
   findPatientPda,
   findConfigPda,
@@ -30,45 +41,82 @@ import {
   findHospitalPda,
   findGrantPda,
 } from "@/lib/pda";
-import bs58 from "bs58";
-import { Textarea } from "@/components/ui/textarea";
-import { StatusBanner } from "@/components/status-banner";
-import { GeneralModal } from "@/components/general-modal";
+import { MedicalRecordIntake, HospitalData } from "@/types/Record";
 
-interface MedicalRecord {
-  patient_pubkey: string;
-  hospital_pubkey: string | null;
-  hospital_name: string | null;
-  doctor_name: string;
-  diagnosis: string;
-  keywords: string;
-  description: string;
+// ========================================================================
+//  UTILITY FUNCTIONS
+// ========================================================================
+
+const u8ToB64 = (u8: Uint8Array) => Buffer.from(u8).toString("base64");
+const hexToU8 = (hex: string) => new Uint8Array(Buffer.from(hex, "hex"));
+const b64ToU8 = (b64: string) => new Uint8Array(Buffer.from(b64, "base64"));
+
+/**
+ * Calls the API endpoint to encrypt and upload the file.
+ * This is moved outside the component as it doesn't rely on component state
+ * (record is now passed as an argument).
+ */
+async function encUpload(
+  file: File,
+  patientPk_b64: string,
+  hospitalPk_b64: string,
+  record: MedicalRecordIntake | null
+): Promise<{
+  cidEnc: string;
+  metaCid: string;
+  sizeBytes: number;
+  cipherHashHex: string;
+  edekRoot_b64: string;
+  edekPatient_b64: string;
+  edekHospital_b64: string;
+  kmsRef: string;
+}> {
+  if (!file) throw new Error("No file provided for upload");
+
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("contentType", file.type || "application/octet-stream");
+  fd.append("patientPk_b64", patientPk_b64);
+  fd.append("rsCreatorPk_b64", hospitalPk_b64);
+
+  // Append metadata from the record object
+  if (record) {
+    fd.append("hospital_name", record.hospital_name || "");
+    fd.append("doctor_name", record.doctor_name || "");
+    fd.append("diagnosis", record.diagnosis || "");
+    fd.append("keywords", record.keywords || "");
+    fd.append("description", record.description || "");
+  }
+
+  const r = await fetch("/api/enc-upload", { method: "POST", body: fd });
+
+  const text = await r.text();
+  if (!r.ok) throw new Error(text);
+  return JSON.parse(text);
 }
 
-interface HospitalData {
-  name: string;
-  authority_pubkey: string;
-}
+// ========================================================================
+//  MAIN COMPONENT
+// ========================================================================
 
 export default function Page() {
-  const [record, setRecord] = useState<MedicalRecord | null>(null);
-  const [original, setOriginal] = useState<MedicalRecord | null>(null);
+  // --- Form & Data State ---
+  const [record, setRecord] = useState<MedicalRecordIntake | null>(null);
+  const [original, setOriginal] = useState<MedicalRecordIntake | null>(null);
   const [zipName, setZipName] = useState<string | null>(null);
   const [previews, setPreviews] = useState<string[]>([]);
   const [images, setImages] = useState<{ name: string; blob: Blob }[]>([]);
   const [hospitalData, setHospitalData] = useState<HospitalData | null>(null);
-  const [view, setView] = useState<"form" | "loading" | "qr">("form");
 
-  // --- SOLANA STATE & HOOKS ---
-  const { connection } = useConnection();
-  const wallet = useAnchorWallet();
-  const { signTransaction: waSignTx } = useWallet(); // <-- ADDED
+  // --- UI & Status State ---
+  const [view, setView] = useState<"form" | "loading" | "qr">("form");
+  const [status, setStatus] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // --- Live Check State ---
   const [patientCheckStatus, setPatientCheckStatus] = useState<string | null>(
     null
   );
-  const [status, setStatus] = useState("");
-
-  // --- LIVE CHECKS STATE ---
   const [hospitalOk, setHospitalOk] = useState<boolean | null>(null);
   const [patientAccountOk, setPatientAccountOk] = useState<boolean | null>(
     null
@@ -76,12 +124,14 @@ export default function Page() {
   const [grantOk, setGrantOk] = useState<boolean | null>(null);
   const [grantErr, setGrantErr] = useState<string>("");
 
-  // --- CO-SIGN STATE (COPIED) ---
+  // --- Co-Sign State ---
   const [lastIx, setLastIx] = useState<TransactionInstruction | null>(null);
   const [coSignBase64, setCoSignBase64] = useState("");
-  const [shareUrl, setShareUrl] = useState(""); // <-- ADDED from base logic
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  // --- Solana Hooks & Program Setup ---
+  const { connection } = useConnection();
+  const wallet = useAnchorWallet();
+  const { signTransaction: waSignTx } = useWallet();
 
   const programId = useMemo(
     () => new PublicKey(process.env.NEXT_PUBLIC_PROGRAM_ID!),
@@ -112,50 +162,8 @@ export default function Page() {
     }
   }, [record?.patient_pubkey]);
 
-  // ==================== HELPERS (COPIED) ====================
-  const u8ToB64 = (u8: Uint8Array) => Buffer.from(u8).toString("base64");
-  const hexToU8 = (hex: string) => new Uint8Array(Buffer.from(hex, "hex"));
-  const b64ToU8 = (b64: string) => new Uint8Array(Buffer.from(b64, "base64"));
+  // --- Side Effects & On-Chain Checks ---
 
-  // ==================== ENC UPLOAD (MODIFIED) ====================
-  async function encUpload(
-    file: File,
-    patientPk_b64: string,
-    hospitalPk_b64: string
-  ): Promise<{
-    cidEnc: string;
-    metaCid: string;
-    sizeBytes: number;
-    cipherHashHex: string;
-    edekRoot_b64: string;
-    edekPatient_b64: string;
-    edekHospital_b64: string;
-    kmsRef: string;
-  }> {
-    if (!file) throw new Error("No file provided for upload");
-
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("contentType", file.type || "application/octet-stream");
-    fd.append("patientPk_b64", patientPk_b64);
-    fd.append("rsCreatorPk_b64", hospitalPk_b64);
-
-    if (record) {
-      fd.append("hospital_name", record.hospital_name || "");
-      fd.append("doctor_name", record.doctor_name || "");
-      fd.append("diagnosis", record.diagnosis || "");
-      fd.append("keywords", record.keywords || "");
-      fd.append("description", record.description || "");
-    }
-
-    const r = await fetch("/api/enc-upload", { method: "POST", body: fd });
-
-    const text = await r.text();
-    if (!r.ok) throw new Error(text);
-    return JSON.parse(text);
-  }
-
-  // ==================== LIVE CHECKERS (COPIED & ADAPTED) ====================
   // Check 1: Is connected wallet a registered hospital?
   useEffect(() => {
     (async () => {
@@ -212,7 +220,7 @@ export default function Page() {
     };
 
     checkPatient();
-  }, [program, patientPk?.toBase58()]);
+  }, [program, patientPk?.toBase58(), record?.patient_pubkey]); // Added record dependency
 
   // Check 3: Does this hospital have a Write Grant from this patient?
   useEffect(() => {
@@ -250,20 +258,7 @@ export default function Page() {
     })();
   }, [program, wallet?.publicKey, patientPk?.toBase58()]);
 
-  // --- EFFECT FOR SHARE URL (COPIED) ---
-  useEffect(() => {
-    if (coSignBase64 && typeof window !== "undefined") {
-      setShareUrl(
-        `${window.location.origin}/co-sign?tx=${encodeURIComponent(
-          coSignBase64
-        )}`
-      );
-    } else {
-      setShareUrl("");
-    }
-  }, [coSignBase64]);
-
-  // ==================== FETCH HOSPITAL INFO ====================
+  // Effect 4: Fetch hospital info on load
   useEffect(() => {
     const fetchHospital = async () => {
       try {
@@ -277,9 +272,9 @@ export default function Page() {
     fetchHospital();
   }, []);
 
-  // ==================== LOAD ZIP ====================
+  // --- Event Handlers ---
+
   const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
-    // ... (This function remains unchanged) ...
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -292,7 +287,7 @@ export default function Page() {
       }
 
       const jsonText = await jsonFile.async("string");
-      const data: MedicalRecord = JSON.parse(jsonText);
+      const data: MedicalRecordIntake = JSON.parse(jsonText);
       setRecord(data);
       setOriginal(data);
       setZipName(file.name);
@@ -312,7 +307,6 @@ export default function Page() {
           prev
             ? {
                 ...prev,
-
                 hospital_pubkey: hospitalData.authority_pubkey,
                 hospital_name: hospitalData.name,
               }
@@ -325,26 +319,22 @@ export default function Page() {
     }
   };
 
-  // ==================== HELPERS ====================
-  const handleChange = (key: keyof MedicalRecord, value: string) =>
+  const handleChange = (key: keyof MedicalRecordIntake, value: string) =>
     record && setRecord({ ...record, [key]: value });
 
-  const handleReset = (key: keyof MedicalRecord) =>
+  const handleReset = (key: keyof MedicalRecordIntake) =>
     record && original && setRecord({ ...record, [key]: original[key] });
 
   const handleFill = () => {
-    // ... (This function remains unchanged) ...
     if (!record || !hospitalData) return;
     setRecord({
       ...record,
-
       hospital_pubkey: hospitalData.authority_pubkey,
       hospital_name: hospitalData.name,
     });
   };
 
   const handleDownloadZip = async () => {
-    // ... (This function remains unchanged) ...
     if (!record) return;
 
     const zip = new JSZip();
@@ -353,7 +343,7 @@ export default function Page() {
 
     const blob = await zip.generateAsync({ type: "blob" });
 
-    // --- Filename structure: patient_pubkey + hospital_pubkey + date ---
+    // Filename structure: patient_pubkey + hospital_pubkey + date
     const patientKey =
       record.patient_pubkey?.replace(/[^a-zA-Z0-9_-]/g, "") ||
       "unknown_patient";
@@ -369,7 +359,7 @@ export default function Page() {
 
     const filename = `${patientKey}_${hospitalKey}_${timestamp}.zip`;
 
-    // --- Download trigger ---
+    // Download trigger
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
     link.download = filename;
@@ -377,23 +367,17 @@ export default function Page() {
     URL.revokeObjectURL(link.href);
   };
 
-  // ==================== REFRESH TX (COPIED) ====================
   const refreshCosignTx = async () => {
     try {
       if (!wallet || !lastIx) return;
       setStatus("Refreshing co-sign transaction...");
-      const { blockhash } = await connection.getLatestBlockhash("finalized");
-      const ltx = new Transaction({
-        feePayer: wallet.publicKey,
-        recentBlockhash: blockhash,
-      }).add(lastIx);
 
-      if (!waSignTx) throw new Error("Wallet cannot sign transactions.");
-      const signedByHospital = await waSignTx(ltx);
-
-      const b64 = Buffer.from(
-        signedByHospital.serialize({ requireAllSignatures: false })
-      ).toString("base64");
+      const b64 = await refreshCosignTxHelper(
+        connection,
+        wallet,
+        waSignTx,
+        lastIx
+      );
 
       setCoSignBase64(b64);
       setStatus("Share the new link/base64 with the patient.");
@@ -405,185 +389,6 @@ export default function Page() {
     }
   };
 
-  // ==================== MAIN SUBMIT (IMPLEMENTED) ====================
-  const handleSubmitOnChain = async () => {
-    setCoSignBase64("");
-    setIsSubmitting(true);
-    setView("loading"); // 🔄 switch to spinner view immediately
-
-    try {
-      setStatus("Checking preconditions...");
-      if (!program || !wallet || !patientPk || !record)
-        throw new Error("Program, wallet, patient, or record missing");
-      if (!hospitalOk)
-        throw new Error("Hospital not registered for this wallet.");
-      if (!patientAccountOk)
-        throw new Error("Patient not registered. Ask them to upsert first.");
-      if (!grantOk)
-        throw new Error(
-          grantErr || "Write access not granted by this patient."
-        );
-
-      // --- existing logic (unchanged) ---
-      const configPda = findConfigPda(programId);
-      const patientPda = findPatientPda(programId, patientPk);
-      const patientSeqPda = findPatientSeqPda(programId, patientPda);
-      const hospitalPda = findHospitalPda(programId, wallet.publicKey);
-      const grantWritePda = findGrantPda(
-        programId,
-        patientPda,
-        wallet.publicKey,
-        2
-      );
-
-      const patientPk_b64 = u8ToB64(bs58.decode(record.patient_pubkey.trim()));
-      const hospitalPk_b64 = u8ToB64(wallet.publicKey.toBytes());
-
-      setStatus("Zipping record...");
-      const zip = new JSZip();
-      zip.file("medical_record.json", JSON.stringify(record, null, 2));
-      images.forEach((img) => zip.file(img.name, img.blob));
-      const zipBlob = await zip.generateAsync({ type: "blob" });
-      const finalZipFile = new File([zipBlob], zipName || "record.zip", {
-        type: "application/zip",
-      });
-
-      setStatus("Encrypting & uploading zip...");
-      const {
-        cidEnc,
-        metaCid,
-        sizeBytes,
-        cipherHashHex,
-        edekRoot_b64,
-        edekPatient_b64,
-        edekHospital_b64,
-        kmsRef,
-      } = await encUpload(finalZipFile, patientPk_b64, hospitalPk_b64);
-
-      setStatus("Deriving PDAs & sequence...");
-      // @ts-expect-error anchor typing
-      const patientSeq = await program.account.patientSeq.fetch(patientSeqPda);
-      const seq = new anchor.BN(patientSeq.value);
-
-      const metaMime = "application/zip";
-      const sizeBn = new anchor.BN(sizeBytes);
-      const hash32 = Array.from(hexToU8(cipherHashHex));
-      const edekRoot = Buffer.from(b64ToU8(edekRoot_b64));
-      const edekForPatient = Buffer.from(b64ToU8(edekPatient_b64));
-      const edekForHospital = Buffer.from(b64ToU8(edekHospital_b64));
-
-      const method = program.methods
-        .createRecord(
-          seq,
-          cidEnc,
-          metaMime,
-          metaCid,
-          sizeBn,
-          hash32,
-          edekRoot,
-          edekForPatient,
-          edekForHospital,
-          { kms: {} },
-          { kms: {} },
-          { kms: {} },
-          kmsRef,
-          1,
-          { xChaCha20: {} },
-
-          // ✅ Correct: Only 17 arguments total
-          record.hospital_name || "",
-          record.doctor_name || ""
-        )
-        .accounts({
-          uploader: wallet.publicKey,
-          payer: patientPk,
-          config: configPda,
-          patient: patientPda,
-          patientSeq: patientSeqPda,
-          hospital: hospitalPda,
-          grantWrite: grantWritePda,
-          record: PublicKey.findProgramAddressSync(
-            [
-              Buffer.from("record"),
-              patientPda.toBuffer(),
-              seq.toArrayLike(Buffer, "le", 8),
-            ],
-            programId
-          )[0],
-          systemProgram: SystemProgram.programId,
-        });
-
-      if (wallet.publicKey.equals(patientPk)) {
-        setStatus("Submitting (single-signer test path)...");
-        const sig = await method.rpc();
-        toast.success(`Transaction confirmed: ${sig}`);
-        setView("form");
-        return;
-      }
-
-      setStatus("Building instruction...");
-      const ix = await method.instruction();
-      setLastIx(ix);
-
-      const { blockhash } = await connection.getLatestBlockhash("finalized");
-      const ltx = new Transaction({
-        feePayer: wallet.publicKey,
-        recentBlockhash: blockhash,
-      }).add(ix);
-
-      if (!waSignTx)
-        throw new Error(
-          "This wallet cannot sign transactions. Use Phantom/Backpack/Solflare."
-        );
-
-      const signedByHospital = await waSignTx(ltx);
-      const b64 = Buffer.from(
-        signedByHospital.serialize({ requireAllSignatures: false })
-      ).toString("base64");
-
-      setCoSignBase64(b64);
-      setView("qr"); // ✅ show QR code page
-      toast.success(
-        "Transaction created successfully. Awaiting patient co-sign."
-      );
-    } catch (e: any) {
-      const msg = e?.message || e?.toString?.() || "Unknown error";
-      setStatus(`❌ ${msg}`);
-      setView("form"); // ⏪ re-render form
-      toast.error("Failed to initialize transaction.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  // ==================== FIELD CONFIG ====================
-  const fields: {
-    key: keyof MedicalRecord;
-    label: string;
-    textarea?: boolean;
-    fillable?: boolean;
-  }[] = [
-    // ... (This array remains unchanged) ...
-    { key: "patient_pubkey", label: "Patient Pubkey" },
-    { key: "hospital_pubkey", label: "Hospital Pubkey", fillable: true },
-    { key: "hospital_name", label: "Hospital Name", fillable: true },
-    { key: "doctor_name", label: "Doctor Name" },
-    { key: "diagnosis", label: "Diagnosis" },
-    { key: "keywords", label: "Keywords" },
-    { key: "description", label: "Description", textarea: true },
-  ];
-
-  // --- READY STATE ---
-  const readyToSubmit =
-    !!program &&
-    !!wallet?.publicKey &&
-    !!patientPk &&
-    !!record &&
-    hospitalOk === true &&
-    patientAccountOk === true &&
-    grantOk === true;
-
-  // ==================== CLEAR ALL STATE ====================
   const handleClearUpload = () => {
     setRecord(null);
     setOriginal(null);
@@ -608,110 +413,231 @@ export default function Page() {
     console.log("Upload cleared and all states reset.");
   };
 
-  // ==================== RENDER ====================
+  // --- Derived State ---
+  const readyToSubmit =
+    !!program &&
+    !!wallet?.publicKey &&
+    !!patientPk &&
+    !!record &&
+    hospitalOk === true &&
+    patientAccountOk === true &&
+    grantOk === true;
+
+  // --- Core Submit Logic ---
+
+  const handleSubmitOnChain = async () => {
+    setCoSignBase64("");
+    setIsSubmitting(true);
+    setView("loading"); // 🔄 switch to spinner view immediately
+
+    try {
+      // --- 1. Pre-flight Checks ---
+      setStatus("Checking preconditions...");
+      if (!program || !wallet || !patientPk || !record)
+        throw new Error("Program, wallet, patient, or record missing");
+      if (!hospitalOk)
+        throw new Error("Hospital not registered for this wallet.");
+      if (!patientAccountOk)
+        throw new Error("Patient not registered. Ask them to upsert first.");
+      if (!grantOk)
+        throw new Error(
+          grantErr || "Write access not granted by this patient."
+        );
+
+      // --- 2. Prepare Data & PDAs ---
+      setStatus("Deriving PDAs...");
+      const configPda = findConfigPda(programId);
+      const patientPda = findPatientPda(programId, patientPk);
+      const patientSeqPda = findPatientSeqPda(programId, patientPda);
+      const hospitalPda = findHospitalPda(programId, wallet.publicKey);
+      const grantWritePda = findGrantPda(
+        programId,
+        patientPda,
+        wallet.publicKey,
+        2 // GrantLevel.Write
+      );
+
+      const patientPk_b64 = u8ToB64(bs58.decode(record.patient_pubkey.trim()));
+      const hospitalPk_b64 = u8ToB64(wallet.publicKey.toBytes());
+
+      // --- 3. ZIP Data ---
+      setStatus("Zipping record...");
+      const zip = new JSZip();
+      zip.file("medical_record.json", JSON.stringify(record, null, 2));
+      images.forEach((img) => zip.file(img.name, img.blob));
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      const finalZipFile = new File([zipBlob], zipName || "record.zip", {
+        type: "application/zip",
+      });
+
+      // --- 4. Encrypt & Upload to API ---
+      setStatus("Encrypting & uploading zip...");
+      const {
+        cidEnc,
+        metaCid,
+        sizeBytes,
+        cipherHashHex,
+        edekRoot_b64,
+        edekPatient_b64,
+        edekHospital_b64,
+        kmsRef,
+      } = await encUpload(finalZipFile, patientPk_b64, hospitalPk_b64, record); // Pass record
+
+      // --- 5. Prepare On-Chain Arguments ---
+      setStatus("Fetching patient sequence...");
+      // @ts-expect-error anchor typing
+      const patientSeq = await program.account.patientSeq.fetch(patientSeqPda);
+      const seq = new anchor.BN(patientSeq.value);
+
+      const metaMime = "application/zip";
+      const sizeBn = new anchor.BN(sizeBytes);
+      const hash32 = Array.from(hexToU8(cipherHashHex));
+      const edekRoot = Buffer.from(b64ToU8(edekRoot_b64));
+      const edekForPatient = Buffer.from(b64ToU8(edekPatient_b64));
+      const edekForHospital = Buffer.from(b64ToU8(edekHospital_b64));
+
+      // --- 6. Build Instruction ---
+      setStatus("Building transaction instruction...");
+      const recordPda = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("record"),
+          patientPda.toBuffer(),
+          seq.toArrayLike(Buffer, "le", 8),
+        ],
+        programId
+      )[0];
+
+      const method = program.methods
+        .createRecord(
+          seq,
+          cidEnc,
+          metaMime,
+          metaCid,
+          sizeBn,
+          hash32,
+          edekRoot,
+          edekForPatient,
+          edekForHospital,
+          { kms: {} },
+          { kms: {} },
+          { kms: {} },
+          kmsRef,
+          1, // schema_version
+          { xChaCha20: {} },
+          record.hospital_name || "",
+          record.doctor_name || ""
+        )
+        .accounts({
+          uploader: wallet.publicKey,
+          payer: patientPk, // Patient pays for the record creation
+          config: configPda,
+          patient: patientPda,
+          patientSeq: patientSeqPda,
+          hospital: hospitalPda,
+          grantWrite: grantWritePda,
+          record: recordPda,
+          systemProgram: SystemProgram.programId,
+        });
+
+      // --- 7. Handle Single-Signer (Test) vs. Co-Signer ---
+      if (wallet.publicKey.equals(patientPk)) {
+        setStatus("Submitting (single-signer test path)...");
+        const sig = await method.rpc();
+        toast.success(`Transaction confirmed: ${sig}`);
+        setView("form");
+        return;
+      }
+
+      // --- 8. Create Co-Sign Transaction ---
+      setStatus("Building instruction...");
+      const ix = await method.instruction();
+      setLastIx(ix);
+
+      const { blockhash } = await connection.getLatestBlockhash("finalized");
+      const ltx = new Transaction({
+        feePayer: wallet.publicKey, // Hospital pays for the co-sign setup
+        recentBlockhash: blockhash,
+      }).add(ix);
+
+      if (!waSignTx)
+        throw new Error(
+          "This wallet cannot sign transactions. Use Phantom/Backpack/Solflare."
+        );
+
+      // Hospital signs their part
+      const signedByHospital = await waSignTx(ltx);
+      const b64 = Buffer.from(
+        signedByHospital.serialize({ requireAllSignatures: false })
+      ).toString("base64");
+
+      setCoSignBase64(b64);
+      setView("qr"); // ✅ show QR code page
+      toast.success(
+        "Transaction created successfully. Awaiting patient co-sign."
+      );
+    } catch (e: any) {
+      const msg = e?.message || e?.toString?.() || "Unknown error";
+      setStatus(`❌ ${msg}`);
+      setView("form"); // ⏪ re-render form
+      toast.error(`Failed to initialize transaction: ${msg}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // ========================================================================
+  //  RENDER
+  // ========================================================================
+
   return (
     <main className="my-6 min-h-[70vh] flex items-center justify-center">
-      {/* ========== LOADING VIEW ========== */}
+      {/* ========== 1. LOADING VIEW ========== */}
       {view === "loading" && (
         <div className="flex flex-col items-center justify-center gap-4 text-center">
           <div className="w-10 h-10 border-4 border-t-transparent border-primary rounded-full animate-spin" />
-          <p className="text-sm text-muted-foreground">
-            Submitting encrypted record to blockchain...
-          </p>
+          <p className="text-sm text-muted-foreground">{status || "..."}</p>
         </div>
       )}
 
-      {/* ========== QR VIEW ========== */}
+      {/* ========== 2. QR VIEW ========== */}
       {view === "qr" && coSignBase64 && (
-        <div className="flex flex-col items-center gap-4 text-center">
-          <p className="text-sm text-muted-foreground">
-            Scan this QR to load the transaction on the patient&apos;s device:
-          </p>
-
-          <div className="p-3 border rounded bg-white dark:bg-black">
-            <QRCodeCanvas
-              value={coSignBase64}
-              size={256}
-              level="L"
-              includeMargin
-            />
-          </div>
-
-          {/* --- MODIFIED: Added Refresh Button k --- */}
-          <div className="flex flex-col items-center gap-3">
-            <p className="text-xs text-muted-foreground break-all max-w-[90%] text-center">
-              {coSignBase64.slice(0, 64)}...
-            </p>
-            <div className="flex gap-2 items-center justify-center flex-wrap w-full">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(coSignBase64);
-                    toast.success("Copied QR payload to clipboard");
-                  } catch {
-                    toast.error("Failed to copy to clipboard");
-                  }
-                }}
-                className="flex-1"
-              >
-                Copy Payload
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={refreshCosignTx}
-                className="flex-1"
-              >
-                Refresh TX
-              </Button>
-            </div>
-          </div>
-          {/* --- END MODIFICATION --- */}
-
-          <Button variant="outline" onClick={() => setView("form")}>
-            Back to Form
-          </Button>
-        </div>
+        <QrDisplay
+          value={coSignBase64}
+          onRefresh={refreshCosignTx}
+          onBack={() => setView("form")}
+          title="Scan this QR to load the transaction on the patient's device"
+        />
       )}
 
-      {/* ========== FORM VIEW ========== */}
+      {/* ========== 3. FORM VIEW ========== */}
       {view === "form" && (
         <div className="w-full mx-auto">
-          {/* <header className="flex mb-5">
-            <h1 className="text-2xl font-architekt font-bold">
-              Edit & Submit Record
-            </h1>
-          </header> */}
-
           <Input
             id="zip-input"
             type="file"
             accept=".zip"
             onChange={handleFileUpload}
-            className="mb-4"
+            className="mb-5"
           />
 
           {/* --- STATUS BANNERS --- */}
           <div className="space-y-2 mb-4">
             {hospitalOk === false ? (
               <StatusBanner type="error">
-                ❌ This wallet is not a registered hospital authority.
+                ❌ Current Wallet Is Not A Registered Hospital Authority.
               </StatusBanner>
             ) : patientAccountOk === false && record?.patient_pubkey ? (
               <StatusBanner type="error">
-                ⚠️ Patient not registered. Ask them to upsert on the Patients
-                page.
+                ⚠️ Patient Not Registered.
               </StatusBanner>
             ) : grantOk === false ? (
               <StatusBanner type="warning">
-                ⚠️ Write grant missing:{" "}
+                ⚠️ Write Grant Missing:{" "}
                 {grantErr ||
-                  "Patient must grant Write access to this hospital."}
+                  "Patient Must Grant Write Access To This Hospital."}
               </StatusBanner>
             ) : hospitalOk && patientAccountOk && grantOk ? (
-              <StatusBanner type="success">All Verified</StatusBanner>
+              <StatusBanner type="success">✅ All Checks Passed</StatusBanner>
             ) : null}
           </div>
 
@@ -743,8 +669,7 @@ export default function Page() {
                         Revert
                       </Button>
                     </div>
-
-                    {/* {patientCheckStatus && (
+                    {patientCheckStatus && (
                       <p
                         className={`mt-1 text-sm ${
                           patientCheckStatus.startsWith("✅")
@@ -756,7 +681,7 @@ export default function Page() {
                       >
                         {patientCheckStatus}
                       </p>
-                    )} */}
+                    )}
                   </div>
                 </section>
 
@@ -926,7 +851,6 @@ export default function Page() {
                       onClick={handleSubmitOnChain}
                       disabled={!readyToSubmit || isSubmitting}
                       className="flex-1"
-                      variant="outline"
                     >
                       {isSubmitting ? "Submitting..." : "Submit On-Chain"}
                     </Button>
@@ -953,6 +877,10 @@ export default function Page() {
     </main>
   );
 }
+
+// ========================================================================
+//  SUB-COMPONENTS
+// ========================================================================
 
 function ImagePreview({ src }: { src: string }) {
   const [open, setOpen] = useState(false);

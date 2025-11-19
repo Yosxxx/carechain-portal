@@ -297,7 +297,7 @@
 
 /* === SCROLLBAR (Overlay, No Layout Shift) === */
 html {
-  scrollbar-gutter: stable both-edges; /* prevents layout jump when scrollbars appear */
+  @apply [scrollbar-gutter:stable];
 }
 
 ::-webkit-scrollbar {

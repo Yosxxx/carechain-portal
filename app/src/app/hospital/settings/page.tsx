@@ -7,11 +7,9 @@ export default async function Page() {
   const hospitalData = await GetHospitalData();
 
   return (
-    <main className="my-5 space-y-6">
+    <main className="mb-5 space-y-6">
       <header>
-        <h1 className="text-2xl font-bold font-architekt">
-          Hospital Information
-        </h1>
+        <h1 className="text-2xl font-bold">Hospital Information</h1>
         <p className="text-sm text-muted-foreground">
           Only the hospital address can be updated. Other details are immutable.
         </p>

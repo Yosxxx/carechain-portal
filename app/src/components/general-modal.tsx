@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 
 interface GeneralModalProps {
   open: boolean;
@@ -21,8 +22,8 @@ interface GeneralModalProps {
   image?: string;
   copyable?: boolean;
   children?: React.ReactNode;
-  size?: "sm" | "md" | "lg"; // new
-  disablePadding?: boolean; // new (for full-width image display)
+  size?: "sm" | "md" | "lg";
+  disablePadding?: boolean;
 }
 
 export function GeneralModal({
@@ -36,10 +37,14 @@ export function GeneralModal({
   size = "sm",
   disablePadding = false,
 }: GeneralModalProps) {
+  const [copied, setCopied] = React.useState(false);
+
   const handleCopy = async () => {
     if (!desc) return;
     await navigator.clipboard.writeText(desc);
+    setCopied(true);
     toast.success("Copied to clipboard");
+    setTimeout(() => setCopied(false), 1500);
   };
 
   const sizeClass =
@@ -56,9 +61,15 @@ export function GeneralModal({
           disablePadding ? "p-0" : "p-6"
         } flex flex-col items-center text-center gap-y-4`}
       >
-        {!disablePadding && (
+        {/* Accessible title requirement (Radix) */}
+        {disablePadding ? (
+          // Hidden, but satisfies accessibility requirement
+          <VisuallyHidden>
+            <DialogTitle>{title}</DialogTitle>
+          </VisuallyHidden>
+        ) : (
           <DialogHeader className="w-full">
-            <div className="flex justify-between items-center">
+            <div className="flex justify-center items-center">
               <DialogTitle className="font-semibold text-lg">
                 {title}
               </DialogTitle>
@@ -80,16 +91,23 @@ export function GeneralModal({
         {children && <div className="my-2">{children}</div>}
 
         {desc && (
-          <DialogDescription className="flex items-center gap-x-2 justify-center">
-            <span className="break-all max-w-[300px]">{desc}</span>
+          <DialogDescription className="flex items-center justify-center flex-col space-y-5">
+            <div>{desc}</div>
+
             {copyable && (
               <Button
-                variant="ghost"
+                variant="outline"
                 size="icon"
-                className="hover:bg-muted"
+                className="rounded-xs w-full"
                 onClick={handleCopy}
               >
-                <Copy className="w-4 h-4" />
+                {copied ? (
+                  "Copied"
+                ) : (
+                  <>
+                    <Copy className="w-4 h-4" /> Copy
+                  </>
+                )}
               </Button>
             )}
           </DialogDescription>

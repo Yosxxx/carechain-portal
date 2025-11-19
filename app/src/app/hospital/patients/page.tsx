@@ -105,7 +105,7 @@ export default function Page() {
     try {
       setRecords([]);
       setErr("");
-      setStatus("⏳ Loading...");
+      setStatus("Loading...");
       setLoading(true);
       setHasGrant(null);
       setDownloadAllowed({});
@@ -147,8 +147,8 @@ export default function Page() {
       );
       setRecords(records);
 
-      setStatus("✅ Records fetched successfully.");
-      toast.success("Records fetched successfully.");
+      setStatus("✅ Records Fetched Successfully");
+      toast.success("Records Fetched Successfully");
     } catch (e: any) {
       const message = e.message || String(e);
       setErr(message);
@@ -185,7 +185,7 @@ export default function Page() {
   // ░ Render
   // ────────────────────────────────────────────────
   return (
-    <main className="mt-5 mx-auto">
+    <main className="">
       {/* ── Header ────────────────────────────── */}
       <header className="font-architekt p-2 border rounded-xs">
         <div className="flex font-bold gap-x-2 items-center">
@@ -215,12 +215,9 @@ export default function Page() {
       {/* ── Controls ──────────────────────────── */}
       <div className="mt-2 flex gap-x-3 mb-5">
         <Input
-          placeholder="Search records..."
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setPage(1);
-          }}
+          placeholder="Input Patient Publick Key"
+          value={patientInput}
+          onChange={(e) => setPatientInput(e.target.value)}
         />
         <Button
           onClick={handleFetchPatientRecords}
@@ -230,7 +227,8 @@ export default function Page() {
           {loading ? "Loading..." : "Search"}
         </Button>
         <Button
-          variant="secondary"
+          variant="destructive"
+          disabled={!patientInput}
           onClick={() => {
             setPatientInput("");
             setRecords([]);

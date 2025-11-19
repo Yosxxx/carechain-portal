@@ -267,7 +267,7 @@ export default function ClientLayout({
           <AppSidebar dynamicItems={SIDEBAR_ITEMS} isAdmin={false} />
         </div>
 
-        <div className="col-span-8">{children}</div>
+        <div className="col-span-8 mt-8">{children}</div>
         <div className="col-span-1" />
       </div>
     </main>

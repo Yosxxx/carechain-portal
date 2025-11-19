@@ -11,7 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { StatusBanner } from "@/components/status-banner";
 import { useQrScanner } from "@/components/useQrScanner";
-import { FilePen, QrCodeIcon, X } from "lucide-react";
+import { FilePen, QrCodeIcon } from "lucide-react";
+import { GeneralModal } from "@/components/general-modal";
 
 export default function CoSignPage() {
   const { connection } = useConnection();
@@ -19,12 +20,10 @@ export default function CoSignPage() {
   const params = useSearchParams();
   const { QrScanner } = useQrScanner();
 
-  // ─── State ──────────────────────────────────────────────
   const [b64, setB64] = useState("");
   const [status, setStatus] = useState("");
   const [scanModalOpen, setScanModalOpen] = useState(false);
 
-  // ─── Auto-fill transaction from ?tx= query ─────────────
   useEffect(() => {
     const q = params.get("tx");
     if (q) setB64(q);
@@ -35,11 +34,10 @@ export default function CoSignPage() {
     [publicKey, signTransaction]
   );
 
-  // ─── Decode, sign, and submit transaction ───────────────
   const coSignAndSend = async () => {
     try {
-      if (!canSign) throw new Error("Connect patient wallet first.");
-      if (!b64.trim()) throw new Error("No transaction provided.");
+      if (!canSign) throw new Error("Connect Patient Wallet First");
+      if (!b64.trim()) throw new Error("No Transaction Provided");
 
       setStatus("Decoding transaction...");
       const tx = Transaction.from(Buffer.from(b64.trim(), "base64"));
@@ -60,7 +58,7 @@ export default function CoSignPage() {
   };
 
   return (
-    <main className="my-5">
+    <main className="mb-5">
       <div className="flex flex-col">
         <header className="font-architekt p-2 border rounded-xs mb-2">
           <div className="flex font-bold gap-x-2 items-center">
@@ -68,15 +66,13 @@ export default function CoSignPage() {
           </div>
         </header>
 
-        {/* ─── Base64 Input ───────────────────────────────────────── */}
         <Textarea
-          className="w-full p-2 text-xs font-mono h-92"
-          placeholder="Paste or scan the base64 transaction..."
+          className="w-full p-2 text-xs h-92"
+          placeholder="Paste / Scan The Base64 Transaction"
           value={b64}
           onChange={(e) => setB64(e.target.value)}
         />
 
-        {/* ─── Action Buttons ─────────────────────────────────────── */}
         <div className="flex justify-between gap-x-5 my-5 w-full">
           <Button
             className="flex-1"
@@ -96,7 +92,6 @@ export default function CoSignPage() {
           </Button>
         </div>
 
-        {/* ─── Status Banner ─────────────────────────────────────── */}
         {status && (
           <StatusBanner
             type={
@@ -113,28 +108,24 @@ export default function CoSignPage() {
           </StatusBanner>
         )}
 
-        {/* ─── QR Scanner Modal ───────────────────────────────────── */}
-        {scanModalOpen && (
-          <div className="fixed inset-0 bg-black/80 z-50 flex flex-col items-center justify-center p-6">
-            <div className="bg-card rounded-xl shadow-lg p-4 w-full max-w-sm">
-              <QrScanner
-                onResult={(text) => {
-                  setB64(text);
-                  setScanModalOpen(false);
-                  setStatus("✅ QR decoded successfully.");
-                }}
-              />
-            </div>
-
-            <Button
-              variant="destructive"
-              className="mt-5"
-              onClick={() => setScanModalOpen(false)}
-            >
-              <X className="w-4 h-4 mr-2" /> Close Scanner
-            </Button>
+        {/* 🔥 GeneralModal QR Scanner (Unified across app) */}
+        <GeneralModal
+          open={scanModalOpen}
+          onOpenChange={setScanModalOpen}
+          title="Scan Transaction QR"
+          size="md"
+          disablePadding
+        >
+          <div className="p-4">
+            <QrScanner
+              onResult={(text) => {
+                setB64(text);
+                setScanModalOpen(false);
+                setStatus("✅ QR Decoded Successfully");
+              }}
+            />
           </div>
-        )}
+        </GeneralModal>
       </div>
     </main>
   );

@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { ChevronsUpDown, ExternalLink, Search } from "lucide-react";
+import { ChevronsUpDown, ExternalLink, Search, Loader2 } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -31,11 +31,6 @@ import { fetchPatientRecords } from "@/lib/helper/fetchPatientRecords";
 import { filterRecords, paginate } from "@/lib/helper/recordFilters";
 import { showLoading, showSuccess, showError } from "@/lib/helper/toast";
 
-/**
- * Patient Records Page
- * - Fetches and displays on-chain medical records tied to a connected wallet.
- * - Supports search, filter, pagination, and encrypted file decryption.
- */
 export default function Page() {
   const { publicKey } = useWallet();
   const { program, programId, ready } = useProgram();
@@ -44,6 +39,7 @@ export default function Page() {
   const [records, setRecords] = useState<Rec[]>([]);
   const [patientOk, setPatientOk] = useState<boolean | null>(null);
   const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [filterMode, setFilterMode] = useState<string | null>(null);
   const [page, setPage] = useState(1);
@@ -59,24 +55,32 @@ export default function Page() {
       setErr("");
       setRecords([]);
       setPatientOk(null);
+
       if (!ready || !program || !publicKey) return;
 
       try {
+        setLoading(true);
+
         const patientPda = findPatientPda(programId, publicKey);
-        // Check if wallet is a registered patient
+
+        // Is patient registered?
         // @ts-expect-error anchor typing
         const pAcc = await program.account.patient.fetchNullable(patientPda);
+
         if (!pAcc) {
           setPatientOk(false);
           return;
         }
+
         setPatientOk(true);
 
-        // Fetch and format all records
+        // Fetch Records
         const out = await fetchPatientRecords(program, programId, patientPda);
         setRecords(out);
       } catch (e: any) {
         setErr(e?.message ?? String(e));
+      } finally {
+        setLoading(false);
       }
     })();
   }, [ready, program, programId, publicKey]);
@@ -114,9 +118,9 @@ export default function Page() {
 
   // -------------------- UI --------------------
   return (
-    <main className="my-5">
+    <main className="mb-5">
       {/* ===== Header ===== */}
-      <header className="font-architekt p-2 border rounded-xs mt-5">
+      <header className="font-architekt p-2 border rounded-xs">
         <div className="flex font-bold gap-x-2 items-center">
           <Search size={20} /> Search for Records
         </div>
@@ -126,139 +130,154 @@ export default function Page() {
       <div className="mt-2">
         {!publicKey && (
           <StatusBanner type="warning">
-            ⚠️ Connect wallet to load your records.
+            ⚠️ Connect your Solana wallet to load your records.
           </StatusBanner>
         )}
-        {publicKey && patientOk === false && (
+
+        {loading && (
+          <StatusBanner type="info">
+            <Loader2 className="w-4 h-4 animate-spin" /> Fetching Records...
+          </StatusBanner>
+        )}
+
+        {publicKey && patientOk === false && !loading && (
           <StatusBanner type="error">
-            ❌ This wallet is not registered as a patient yet.
+            ❌ This wallet is not registered as a patient.
           </StatusBanner>
         )}
-        {err && <StatusBanner type="error">⚠️ {err}</StatusBanner>}
-        {patientOk && records.length > 0 && (
+
+        {err && !loading && <StatusBanner type="error">⚠️ {err}</StatusBanner>}
+
+        {patientOk && !loading && records.length > 0 && (
           <StatusBanner type="success">
-            ✅ Fetched {records.length} record{records.length > 1 ? "s" : ""}.
+            ✅ Successfully Fetched {records.length} Record
+            {records.length > 1 ? "s" : ""}
           </StatusBanner>
         )}
       </div>
 
       {/* ===== Search + Filter ===== */}
-      <div className="flex gap-2 mt-2">
-        <Input
-          placeholder="Search records..."
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setPage(1);
-          }}
-        />
-        <FilterButton
-          options={[
-            { label: "Default", value: null },
-            { label: "Doctor (A-Z)", value: "doctor" },
-            { label: "Hospital (A-Z)", value: "hospital" },
-            { label: "Date ↑", value: "dateAsc" },
-            { label: "Date ↓", value: "dateDesc" },
-          ]}
-          selected={filterMode}
-          onChange={(val) => {
-            setFilterMode(val);
-            setPage(1);
-          }}
-        />
-      </div>
+      {patientOk && !loading && (
+        <div className="flex gap-2 mt-2">
+          <Input
+            placeholder="Search Records"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+          />
+          <Button variant={"outline"}>AI Summary</Button>
+          <FilterButton
+            options={[
+              { label: "Default", value: null },
+              { label: "Doctor (A-Z)", value: "doctor" },
+              { label: "Hospital (A-Z)", value: "hospital" },
+              { label: "Date ↑", value: "dateAsc" },
+              { label: "Date ↓", value: "dateDesc" },
+            ]}
+            selected={filterMode}
+            onChange={(val) => {
+              setFilterMode(val);
+              setPage(1);
+            }}
+          />
+        </div>
+      )}
 
       {/* ===== Record List ===== */}
-      <div className="flex flex-col gap-y-4 mt-5 mb-5">
-        {paginated.map((rec) => (
-          <Collapsible key={rec.pda} className="border p-4 rounded-xs">
-            <CollapsibleTrigger className="w-full flex justify-between text-left items-center gap-4">
-              <div className="flex-1 min-w-0">
-                <div className="font-semibold truncate text-sm">
-                  {rec.diagnosis || "Untitled Diagnosis"}
+      {!loading && (
+        <div className="flex flex-col gap-y-4 mt-5 mb-5">
+          {paginated.map((rec) => (
+            <Collapsible key={rec.pda} className="border p-4 rounded-xs">
+              <CollapsibleTrigger className="w-full flex justify-between text-left items-center gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold truncate text-sm">
+                    {rec.diagnosis || "Untitled Diagnosis"}
+                  </div>
+                  {rec.keywords && (
+                    <div className="text-sm text-muted-foreground space-x-2">
+                      <span>{rec.keywords}</span>
+                    </div>
+                  )}
                 </div>
-                {rec.keywords && (
-                  <div className="text-sm text-muted-foreground space-x-2">
-                    <span>{rec.keywords}</span>
+                <div className="text-sm text-muted-foreground text-right whitespace-nowrap">
+                  {new Date(rec.createdAt).toLocaleDateString()}
+                </div>
+                <ChevronsUpDown className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+              </CollapsibleTrigger>
+
+              <CollapsibleContent className="mt-4 space-y-4 text-sm">
+                {/* --- Metadata --- */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <div className="text-xs font-medium">Hospital Name</div>
+                    <div className="font-mono border p-2 rounded-xs">
+                      {rec.hospital_name || "N/A"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium">Doctor Name</div>
+                    <div className="font-mono border p-2 rounded-xs">
+                      {rec.doctor_name || "N/A"}
+                    </div>
+                  </div>
+                </div>
+
+                <Separator className="my-2" />
+
+                {/* --- Description --- */}
+                {rec.description && (
+                  <div>
+                    <div className="text-xs font-medium">Description</div>
+                    <p className="whitespace-pre-wrap border p-2 rounded-xs min-h-52 max-h-52">
+                      {rec.description}
+                    </p>
                   </div>
                 )}
-              </div>
-              <div className="text-sm text-muted-foreground text-right whitespace-nowrap">
-                {new Date(rec.createdAt).toLocaleDateString()}
-              </div>
-              <ChevronsUpDown className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-            </CollapsibleTrigger>
 
-            <CollapsibleContent className="mt-4 space-y-4 text-sm">
-              {/* --- Metadata --- */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <div className="text-xs font-medium">Hospital Name</div>
-                  <div className="font-mono border p-2 rounded-xs">
-                    {rec.hospital_name || "N/A"}
+                {/* --- Solscan Link --- */}
+                {rec.txSignature && (
+                  <div>
+                    <div className="text-xs font-medium">
+                      Transaction Signature
+                    </div>
+                    <a
+                      href={`https://solscan.io/tx/${rec.txSignature}?cluster=devnet`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 text-blue-600 hover:text-blue-800 underline"
+                    >
+                      View on Solscan <ExternalLink className="w-4 h-4" />
+                    </a>
                   </div>
-                </div>
-                <div>
-                  <div className="text-xs font-medium">Doctor Name</div>
-                  <div className="font-mono border p-2 rounded-xs">
-                    {rec.doctor_name || "N/A"}
-                  </div>
-                </div>
-              </div>
+                )}
 
-              <Separator className="my-2" />
-
-              {/* --- Description --- */}
-              {rec.description && (
-                <div>
-                  <div className="text-xs font-medium">Description</div>
-                  <p className="whitespace-pre-wrap border p-2 rounded-xs min-h-52 max-h-52">
-                    {rec.description}
-                  </p>
-                </div>
-              )}
-
-              {/* --- Solscan Link --- */}
-              {rec.txSignature && (
-                <div>
-                  <div className="text-xs font-medium">
-                    Transaction Signature
-                  </div>
-                  <a
-                    href={`https://solscan.io/tx/${rec.txSignature}?cluster=devnet`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 text-blue-600 hover:text-blue-800 underline"
+                {/* --- Download Button --- */}
+                <div className="pt-3 border-t mt-3">
+                  <Button
+                    onClick={() => decryptAndDownload(rec)}
+                    disabled={
+                      attachmentStatus[rec.pda] === false ||
+                      downloading === rec.pda
+                    }
+                    variant="secondary"
                   >
-                    View on Solscan <ExternalLink className="w-4 h-4" />
-                  </a>
+                    {attachmentStatus[rec.pda] === false
+                      ? "No Attachments"
+                      : downloading === rec.pda
+                      ? "Decrypting..."
+                      : "Download & Decrypt"}
+                  </Button>
                 </div>
-              )}
-
-              {/* --- Download Button --- */}
-              <div className="pt-3 border-t mt-3">
-                <Button
-                  onClick={() => decryptAndDownload(rec)}
-                  disabled={
-                    attachmentStatus[rec.pda] === false ||
-                    downloading === rec.pda
-                  }
-                  variant="secondary"
-                >
-                  {attachmentStatus[rec.pda] === false
-                    ? "No Attachments"
-                    : downloading === rec.pda
-                    ? "Decrypting..."
-                    : "Download & Decrypt"}
-                </Button>
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
-        ))}
-      </div>
+              </CollapsibleContent>
+            </Collapsible>
+          ))}
+        </div>
+      )}
 
       {/* ===== Pagination ===== */}
-      {filteredRecords.length > perPage && (
+      {!loading && filteredRecords.length > perPage && (
         <Pagination className="mb-5">
           <PaginationContent>
             <PaginationItem>
@@ -270,6 +289,7 @@ export default function Page() {
                 }}
               />
             </PaginationItem>
+
             {Array.from({ length: totalPages }).map((_, i) => (
               <PaginationItem key={i}>
                 <PaginationLink
@@ -284,6 +304,7 @@ export default function Page() {
                 </PaginationLink>
               </PaginationItem>
             ))}
+
             <PaginationItem>
               <PaginationNext
                 href="#"

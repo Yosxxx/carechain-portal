@@ -144,7 +144,7 @@ export default function TrusteesPage() {
 
   // === Render ===
   return (
-    <main className="my-5">
+    <main className="mb-5">
       <header className="font-architekt p-2 border rounded-xs">
         <div className="flex font-bold gap-x-2 items-center">
           <Search size={20} />

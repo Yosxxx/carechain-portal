@@ -209,7 +209,7 @@ export default function Page() {
       if (grantee) {
         filters.push({ memcmp: { offset: 8 + 32, bytes: grantee.toBase58() } });
       }
-// @ts-expect-error Node File type mismatch with Web File
+      // @ts-expect-error Node File type mismatch with Web File
       const raw = await program.account.grant.all(filters as any);
       const rows: GrantUi[] = raw.map((r: any) => ({
         pubkey: r.publicKey.toBase58(),
@@ -289,22 +289,21 @@ export default function Page() {
     );
 
     // Construct and send transaction
-    
-  const tx = await program!.methods
-    .grantAccess(scopeByte)
-    .accounts({
-      authority: wallet!.publicKey,
-      config: configPda,
-      patient: patientPda!,
-      grant: grantPda,
-      grantee: grantee!,
-      ...(trusteeExists
-        ? { trusteeAccount: trusteePda }
-        : { trusteeAccount: null as any }), // 👈 suppress TS type error only
-      systemProgram: SystemProgram.programId,
-    })
-    .rpc();
 
+    const tx = await program!.methods
+      .grantAccess(scopeByte)
+      .accounts({
+        authority: wallet!.publicKey,
+        config: configPda,
+        patient: patientPda!,
+        grant: grantPda,
+        grantee: grantee!,
+        ...(trusteeExists
+          ? { trusteeAccount: trusteePda }
+          : { trusteeAccount: null as any }), // 👈 suppress TS type error only
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
 
     setSig(tx);
   };
@@ -367,7 +366,7 @@ export default function Page() {
 
   // --- JSX (No Cards) ---
   return (
-    <main className="mx-auto my-5">
+    <main className="mx-auto mb-5">
       <header className="font-architekt p-2 border rounded-xs">
         <div className="flex font-bold gap-x-2 items-center">
           <Search size={20} /> Search for Hospitals
@@ -377,8 +376,7 @@ export default function Page() {
       <div className="flex w-full items-center space-x-2 mt-2">
         <Input
           type="text"
-          placeholder="grantee (hospital authority pubkey)"
-          className="font-mono"
+          placeholder="Hospital Authority Public Key"
           value={filterGranteeStr}
           onChange={(e) => setFilterGranteeStr(e.target.value)}
           disabled={!canAct}

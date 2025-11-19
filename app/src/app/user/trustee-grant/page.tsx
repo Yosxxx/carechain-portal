@@ -168,7 +168,7 @@ export default function TrusteeGrantPage() {
 
   // ─── UI ─────────────────────────────────────────────────────────────────────
   return (
-    <main className="mx-auto mt-5">
+    <main className="mx-auto mb-5">
       <header className="font-architekt p-2 border rounded-xs">
         <div className="flex font-bold gap-x-2 items-center">
           <Search size={20} /> Trustee Grant Access (READ only)
@@ -178,7 +178,7 @@ export default function TrusteeGrantPage() {
       {/* Patient wallet input */}
       <div className="flex items-center gap-x-2 mt-2">
         <Input
-          placeholder="Patient wallet address"
+          placeholder="Patient Wallet Address"
           value={patientStr}
           onChange={(e) => setPatientStr(e.target.value)}
         />
@@ -210,7 +210,7 @@ export default function TrusteeGrantPage() {
       {/* Hospital authority input */}
       <div className="flex items-center gap-x-2 mt-2">
         <Input
-          placeholder="Hospital authority pubkey"
+          placeholder="Hospital Authority Public Key"
           value={granteeStr}
           onChange={(e) => setGranteeStr(e.target.value)}
         />

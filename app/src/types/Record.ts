@@ -13,3 +13,18 @@ export type Rec = {
   description: string;
   txSignature?: string;
 };
+
+export type MedicalRecordIntake = {
+  patient_pubkey: string;
+  hospital_pubkey: string | null;
+  hospital_name: string | null;
+  doctor_name: string;
+  diagnosis: string;
+  keywords: string;
+  description: string;
+};
+
+export type HospitalData = {
+  name: string;
+  authority_pubkey: string;
+};
