@@ -1,16 +1,17 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
+
 import { useEffect, useMemo, useState } from "react";
 import * as anchor from "@coral-xyz/anchor";
 import { useAnchorWallet, useConnection } from "@solana/wallet-adapter-react";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import {
   Search,
-  Loader2,
-  ChevronsUpDown,
-  ClipboardCopyIcon,
   BookCheck,
-} from "lucide-react"; // Import icons
+  ClipboardCopyIcon,
+  ChevronsUpDown,
+} from "lucide-react";
+
 import idl from "../../../../anchor.json";
 import {
   findGrantPda,
@@ -20,28 +21,19 @@ import {
   findTrusteePda,
 } from "@/lib/pda";
 
-// Import shadcn/ui components
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-
+import { StatusBanner } from "@/components/status-banner";
+import HospitalList from "@/components/hospital-list";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination";
-import { toast } from "sonner";
-import { StatusBanner } from "@/components/status-banner";
+} from "@radix-ui/react-collapsible";
 
-// --- Type definitions (unchanged) ---
+// ─────────────────────────────────────────────────────────────
+// TYPES
+// ─────────────────────────────────────────────────────────────
 type HospitalUi = {
   pubkey: string;
   authority: string;
@@ -53,8 +45,8 @@ type HospitalUi = {
 type GrantUi = {
   pubkey: string;
   scope: number;
-  patient: string; // PDA
-  grantee: string; // hospital authority
+  patient: string;
+  grantee: string;
   createdBy: string;
   createdAt: number;
   expiresAt?: number | null;
@@ -62,45 +54,41 @@ type GrantUi = {
   revokedAt?: number | null;
 };
 
-// --- CONSTANTS ---
-const GRANTS_PER_PAGE = 5;
-
+// ─────────────────────────────────────────────────────────────
+// PAGE START
+// ─────────────────────────────────────────────────────────────
 export default function Page() {
   const { connection } = useConnection();
-  // Check if a given account exists on-chain
+  const wallet = useAnchorWallet();
+
+  // helper: does account exist?
   async function accountExists(pubkey: PublicKey): Promise<boolean> {
     const info = await connection.getAccountInfo(pubkey);
     return !!info;
   }
 
-  const wallet = useAnchorWallet();
-
-  // --- State for inputs ---
+  // ─── UI State ──────────────────────────────────────────────
   const [filterGranteeStr, setFilterGranteeStr] = useState("");
   const [activeGranteeStr, setActiveGranteeStr] = useState("");
-  // const [expiresStr, setExpiresStr] = useState(""); // User commented out
 
-  // --- State for UI feedback ---
-  const [err, setErr] = useState("");
-  const [sig, setSig] = useState("");
   const [hospital, setHospital] = useState<HospitalUi>(null);
   const [patientExists, setPatientExists] = useState<boolean | null>(null);
   const [grants, setGrants] = useState<GrantUi[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [loadErr, setLoadErr] = useState("");
+  const [err, setErr] = useState("");
+  const [sig, setSig] = useState("");
 
-  // --- NEW STATE ---
-  // Map of hospital authority pubkey -> hospital name
-  const [hospitalMap, setHospitalMap] = useState<Record<string, string>>({});
+  const [selectedHospital, setSelectedHospital] = useState<null | {
+    authority_pubkey: string;
+    name: string;
+    address: string;
+  }>(null);
 
-  // --- Pagination State ---
-  const [currentPage, setCurrentPage] = useState(1);
-
-  // --- Anchor/Program setup (unchanged) ---
+  // ─── Anchor Program Setup ──────────────────────────────────
   const programId = useMemo(
     () => new PublicKey(process.env.NEXT_PUBLIC_PROGRAM_ID!),
     []
   );
+
   const provider = useMemo(
     () =>
       wallet
@@ -110,19 +98,19 @@ export default function Page() {
         : null,
     [connection, wallet]
   );
+
   const program = useMemo(
     () => (provider ? new anchor.Program(idl as anchor.Idl, provider) : null),
     [provider]
   );
 
-  // --- PDAs and PubKeys (unchanged) ---
+  // ─── PDAs ───────────────────────────────────────────────────
   const patientPk = wallet?.publicKey ?? null;
   const patientPda = useMemo(
     () => (patientPk ? findPatientPda(programId, patientPk) : null),
     [programId, patientPk]
   );
 
-  // --- Grantee parsing (unchanged) ---
   const grantee = useMemo(() => {
     try {
       const t = activeGranteeStr.trim();
@@ -132,13 +120,14 @@ export default function Page() {
     }
   }, [activeGranteeStr]);
 
-  // --- Patient check (unchanged) ---
+  // ─── Check if patient exists ────────────────────────────────
   useEffect(() => {
     (async () => {
       setPatientExists(null);
       if (!program || !patientPda) return;
+
       try {
-        // @ts-expect-error anchor account typing
+        // @ts-expect-error
         const acc = await program.account.patient.fetchNullable(patientPda);
         setPatientExists(!!acc);
       } catch {
@@ -147,38 +136,18 @@ export default function Page() {
     })();
   }, [program, patientPda]);
 
-  // --- NEW: Load all hospitals for the name map ---
-  useEffect(() => {
-    (async () => {
-      if (!program) return;
-      try {
-        // @ts-expect-error Node File type mismatch with Web File
-        const allHospitals = await program.account.hospital.all();
-        const map: Record<string, string> = {};
-        for (const h of allHospitals as any[]) {
-          map[h.account.authority.toBase58()] = h.account.name as string;
-        }
-        setHospitalMap(map);
-      } catch (e) {
-        console.error("Failed to load all hospitals:", e);
-        // Not critical, can just fallback to pubkeys
-      }
-    })();
-  }, [program]);
-
-  // --- Load hospital preview (for searched hospital) (unchanged) ---
+  // ─── Load hospital preview ──────────────────────────────────
   useEffect(() => {
     (async () => {
       setHospital(null);
       if (!program || !grantee) return;
+
       try {
         const hospitalPda = findHospitalPda(program.programId, grantee);
-        // @ts-expect-error anchor account typing
+        // @ts-expect-error
         const acc = await program.account.hospital.fetchNullable(hospitalPda);
-        if (!acc) {
-          setHospital(null);
-          return;
-        }
+        if (!acc) return setHospital(null);
+
         setHospital({
           pubkey: hospitalPda.toBase58(),
           authority: grantee.toBase58(),
@@ -192,28 +161,24 @@ export default function Page() {
     })();
   }, [program, grantee]);
 
-  // --- Load GRANTS (unchanged) ---
+  // ─── Load all grants ────────────────────────────────────────
   const loadGrants = async () => {
-    setLoading(true);
-    setLoadErr("");
-    setCurrentPage(1); // Reset to first page on new load
     try {
-      if (!program || !patientPda) {
-        setGrants([]);
-        setLoading(false);
-        return;
-      }
+      if (!program || !patientPda) return setGrants([]);
+
       const filters: anchor.web3.GetProgramAccountsFilter[] = [
         { memcmp: { offset: 8, bytes: patientPda.toBase58() } },
       ];
+
       if (grantee) {
         filters.push({ memcmp: { offset: 8 + 32, bytes: grantee.toBase58() } });
       }
-      // @ts-expect-error Node File type mismatch with Web File
-      const raw = await program.account.grant.all(filters as any);
+
+      // @ts-expect-error
+      const raw = await program.account.grant.all(filters);
       const rows: GrantUi[] = raw.map((r: any) => ({
         pubkey: r.publicKey.toBase58(),
-        scope: r.account.scope as number,
+        scope: r.account.scope,
         patient: r.account.patient.toBase58(),
         grantee: r.account.grantee.toBase58(),
         createdBy: r.account.createdBy.toBase58?.() ?? r.account.createdBy,
@@ -226,53 +191,44 @@ export default function Page() {
       rows.sort((a, b) => b.createdAt - a.createdAt);
       setGrants(rows);
     } catch (e: any) {
-      setLoadErr(e?.message ?? String(e));
+      console.error(e);
       setGrants([]);
-    } finally {
-      setLoading(false);
     }
   };
 
-  // --- Auto-load grants (unchanged) ---
   useEffect(() => {
     void loadGrants();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [program, patientPda?.toBase58(), grantee?.toBase58()]);
 
-  // --- Handle filter submit (unchanged) ---
-  const handleFilterSubmit = () => {
-    setActiveGranteeStr(filterGranteeStr);
-  };
-
-  // --- UI state for toggles (unchanged) ---
+  // ─── Button Logic Setup ─────────────────────────────────────
   const current: Record<number, boolean> = useMemo(() => {
     const m: Record<number, boolean> = {};
     for (const g of grants) if (!g.revoked) m[g.scope] = true;
     return m;
   }, [grants]);
 
-  // --- Validation (unchanged) ---
+  const currentGrants = useMemo(() => {
+    return grants.filter((g) => g.grantee === grantee?.toBase58());
+  }, [grants, grantee]);
+
+  const canAct = !!program && !!patientPk && patientExists !== false;
+
   const ensureReady = () => {
     if (!program || !wallet) throw new Error("Program/wallet not ready");
     if (!patientPk) throw new Error("Connect wallet first");
     if (!patientExists)
       throw new Error("You have not registered as a patient yet");
-    if (!grantee)
-      throw new Error("Invalid grantee (hospital authority) pubkey");
+    if (!grantee) throw new Error("Invalid grantee pubkey");
   };
 
   const assertHospitalRegistered = async () => {
-    if (!grantee) throw new Error("Invalid grantee (hospital authority)");
+    if (!grantee) throw new Error("Invalid grantee");
     const hospitalPda = findHospitalPda(programId, grantee);
-    // @ts-expect-error anchor typing
+    // @ts-expect-error
     const acc = await program!.account.hospital.fetchNullable(hospitalPda);
-    if (!acc)
-      throw new Error(
-        "Hospital not registered (no Hospital account for this authority)"
-      );
+    if (!acc) throw new Error("Hospital not registered");
   };
 
-  // --- TX functions (unchanged) ---
   const upsertOne = async (scopeByte: number) => {
     setErr("");
     setSig("");
@@ -283,12 +239,6 @@ export default function Page() {
     const configPda = findConfigPda(programId);
     const trusteePda = findTrusteePda(programId, patientPk!, wallet!.publicKey);
     const trusteeExists = await accountExists(trusteePda);
-    console.log(
-      "Including trustee account:",
-      trusteeExists ? trusteePda.toBase58() : "none"
-    );
-
-    // Construct and send transaction
 
     const tx = await program!.methods
       .grantAccess(scopeByte)
@@ -300,7 +250,7 @@ export default function Page() {
         grantee: grantee!,
         ...(trusteeExists
           ? { trusteeAccount: trusteePda }
-          : { trusteeAccount: null as any }), // 👈 suppress TS type error only
+          : { trusteeAccount: null as any }),
         systemProgram: SystemProgram.programId,
       })
       .rpc();
@@ -312,7 +262,6 @@ export default function Page() {
     setErr("");
     setSig("");
     ensureReady();
-    await assertHospitalRegistered();
 
     const grantPda = findGrantPda(programId, patientPda!, grantee!, scopeByte);
 
@@ -329,120 +278,90 @@ export default function Page() {
     setSig(tx);
   };
 
-  // --- Revoke all (User commented out) ---
-  // const revokeAll = async () => { ... };
-
-  const canAct = !!program && !!patientPk && patientExists !== false;
-
-  // --- Pagination Logic ---
-  const totalPages = Math.ceil(grants.length / GRANTS_PER_PAGE);
-  const paginatedGrants = grants.slice(
-    (currentPage - 1) * GRANTS_PER_PAGE,
-    currentPage * GRANTS_PER_PAGE
-  );
-
-  const goToNextPage = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    e.preventDefault();
-    setCurrentPage((p) => Math.min(p + 1, totalPages));
-  };
-  const goToPrevPage = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    e.preventDefault();
-    setCurrentPage((p) => Math.max(p - 1, 1));
-  };
-  const goToPage = (
-    e: React.MouseEvent<HTMLAnchorElement>,
-    pageNum: number
-  ) => {
-    e.preventDefault();
-    setCurrentPage(pageNum);
-  };
-
-  // --- Helper to get scope text ---
-  const getScopeText = (scope: number) => {
-    if (scope === 1) return "Read";
-    if (scope === 2) return "Write";
-    return `Unknown (${scope})`;
-  };
-
-  // --- JSX (No Cards) ---
+  // ─────────────────────────────────────────────────────────────
+  // JSX
+  // ─────────────────────────────────────────────────────────────
   return (
     <main className="mx-auto mb-5">
+      {/* Header */}
       <header className="font-architekt p-2 border rounded-xs">
         <div className="flex font-bold gap-x-2 items-center">
           <Search size={20} /> Search for Hospitals
         </div>
       </header>
 
-      <div className="flex w-full items-center space-x-2 mt-2">
-        <Input
-          type="text"
-          placeholder="Hospital Authority Public Key"
-          value={filterGranteeStr}
-          onChange={(e) => setFilterGranteeStr(e.target.value)}
-          disabled={!canAct}
-        />
-        <Button
-          type="button"
-          size="icon"
-          onClick={handleFilterSubmit}
-          disabled={!canAct}
-        >
-          <Search className="h-4 w-4" />
-        </Button>
-      </div>
-
-      {/* Patient registration status */}
+      {/* Patient Missing */}
       {patientExists === false && (
-        <Alert variant="destructive">
+        <Alert variant="destructive" className="mt-3">
           <AlertTitle>Patient Record Not Found</AlertTitle>
           <AlertDescription>
-            You haven&apos;t registered as a patient yet. Go to{" "}
-            <b>Patients (Upsert)</b> and create your patient record first.
+            You haven&apos;t registered as a patient yet.
           </AlertDescription>
         </Alert>
       )}
 
-      {/* Grantee Selection Section */}
-      {hospital && (
-        <section className="border roudned-xs p-6 space-y-6 bg-card mt-5">
-          <main className="space-y-6">
-            {/* Hospital Verification Card */}
-            <div className="border roudned-xs p-5 bg-card">
+      {/* HOSPITAL LIST (Hidden when one is selected) */}
+      {!selectedHospital && (
+        <HospitalList
+          onSelect={(h) => {
+            setSelectedHospital(h);
+            setFilterGranteeStr(h.authority_pubkey);
+            setActiveGranteeStr(h.authority_pubkey);
+          }}
+        />
+      )}
+
+      {/* ACCESS CONSOLE (Only when a hospital is selected) */}
+      {selectedHospital && hospital && (
+        <div className="mt-2">
+          <Button
+            variant="outline"
+            onClick={() => {
+              setSelectedHospital(null);
+              setHospital(null);
+              setFilterGranteeStr("");
+              setActiveGranteeStr("");
+              setGrants([]);
+            }}
+          >
+            ← Back to Hospital List
+          </Button>
+
+          <section className="border rounded-xs p-6 space-y-6 bg-card mt-5">
+            <div className="border rounded-xs p-5 bg-card mt-4">
               <div className="flex items-start gap-4">
-                <div className="p-2 roudned-xs bg-secondary flex items-center justify-center">
+                <div className="p-2 rounded-xs bg-secondary">
                   <BookCheck className="w-5 h-5 text-secondary-foreground" />
                 </div>
 
                 <div className="flex-1 space-y-2">
-                  <div>
-                    <h2 className="text-sm font-semibold text-foreground">
-                      Hospital Verified
-                    </h2>
-                    <p className="text-xs text-muted-foreground">
-                      Authority confirmed and active
-                    </p>
-                  </div>
+                  <h2 className="text-sm font-semibold">Hospital Verified</h2>
+                  <p className="text-xs text-muted-foreground">
+                    Authority confirmed and active
+                  </p>
 
                   <div className="grid gap-2 text-xs">
-                    <div className="flex justify-between items-center">
+                    <div className="flex justify-between">
                       <span className="text-muted-foreground/70">Name</span>
-                      <span className="text-foreground font-medium">
-                        {hospital.name}
+                      <span className="font-medium">
+                        {selectedHospital.name}
                       </span>
                     </div>
-                    <div className="flex justify-between items-center">
+
+                    <div className="flex justify-between">
                       <span className="text-muted-foreground/70">
                         Authority
                       </span>
-                      <span className="font-mono break-all text-muted-foreground text-right">
+                      <span className="font-mono break-all text-right text-muted-foreground">
                         {hospital.authority}
                       </span>
                     </div>
-                    <div className="flex justify-between items-start">
+
+                    <div className="flex justify-between">
                       <span className="text-muted-foreground/70">
                         Hospital PDA
                       </span>
-                      <span className="font-mono break-all text-muted-foreground text-right">
+                      <span className="font-mono break-all text-right text-muted-foreground">
                         {hospital.pubkey}
                       </span>
                     </div>
@@ -451,40 +370,33 @@ export default function Page() {
               </div>
             </div>
 
-            {/* Manage Access Section */}
+            {/* MANAGE ACCESS */}
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="text font-semibold text-foreground">
-                  Manage Access
-                </h2>
-                <p className="text-xs text-muted-foreground">
-                  Direct permission actions for this hospital.
-                </p>
+                <h2 className="font-semibold">Manage Access</h2>
               </div>
 
               <div className="flex flex-wrap gap-3">
-                {/* === Grant Write Button === */}
+                {/* Grant Write */}
                 <Button
                   onClick={async () => {
                     try {
-                      // If only READ active → revoke read, grant write
                       if (current[1] && !current[2]) {
                         await revokeOne(1);
                         await upsertOne(2);
-                      } else if (!current[2] && !current[1]) {
-                        // If neither active → just grant write
+                      } else if (!current[1] && !current[2]) {
                         await upsertOne(2);
                       }
                       await loadGrants();
                     } catch (e: any) {
-                      setErr(e?.message ?? String(e));
+                      setErr(e.message);
                     }
                   }}
                   disabled={
                     !canAct ||
                     !grantee ||
-                    (current[1] && current[2]) || // both active
-                    (current[2] && !current[1]) // already write only
+                    (current[1] && current[2]) ||
+                    (current[2] && !current[1])
                   }
                   variant={
                     (current[1] && !current[2]) || (!current[1] && !current[2])
@@ -501,28 +413,26 @@ export default function Page() {
                     : "Grant Write"}
                 </Button>
 
-                {/* === Grant Read Button === */}
+                {/* Grant Read */}
                 <Button
                   onClick={async () => {
                     try {
-                      // If only WRITE active → revoke write, grant read
                       if (current[2] && !current[1]) {
                         await revokeOne(2);
                         await upsertOne(1);
                       } else if (!current[1] && !current[2]) {
-                        // If neither active → just grant read
                         await upsertOne(1);
                       }
                       await loadGrants();
                     } catch (e: any) {
-                      setErr(e?.message ?? String(e));
+                      setErr(e.message);
                     }
                   }}
                   disabled={
                     !canAct ||
                     !grantee ||
-                    (current[1] && current[2]) || // both active
-                    (current[1] && !current[2]) // already read only
+                    (current[1] && current[2]) ||
+                    (current[1] && !current[2])
                   }
                   variant={
                     (current[2] && !current[1]) || (!current[1] && !current[2])
@@ -539,7 +449,7 @@ export default function Page() {
                     : "Grant Read"}
                 </Button>
 
-                {/* === Revoke All Button === */}
+                {/* Revoke All */}
                 <Button
                   onClick={async () => {
                     try {
@@ -547,7 +457,7 @@ export default function Page() {
                       if (current[2]) await revokeOne(2);
                       await loadGrants();
                     } catch (e: any) {
-                      setErr(e?.message ?? String(e));
+                      setErr(e.message);
                     }
                   }}
                   disabled={!canAct || !grantee || (!current[1] && !current[2])}
@@ -556,32 +466,24 @@ export default function Page() {
                   Revoke All
                 </Button>
 
-                {/* === Grant All Button === */}
+                {/* Grant All */}
                 <Button
                   onClick={async () => {
                     try {
-                      // If neither active → grant both
                       if (!current[1] && !current[2]) {
                         await upsertOne(1);
                         await upsertOne(2);
-                      }
-                      // If one active → grant missing one
-                      else if (current[1] && !current[2]) {
+                      } else if (current[1] && !current[2]) {
                         await upsertOne(2);
                       } else if (!current[1] && current[2]) {
                         await upsertOne(1);
                       }
                       await loadGrants();
                     } catch (e: any) {
-                      setErr(e?.message ?? String(e));
+                      setErr(e.message);
                     }
                   }}
                   disabled={!canAct || !grantee || (current[1] && current[2])}
-                  variant={
-                    (!current[1] && !current[2]) || current[1] !== current[2]
-                      ? "default"
-                      : "outline"
-                  }
                 >
                   {current[1] && current[2]
                     ? "All Granted"
@@ -591,54 +493,30 @@ export default function Page() {
                 </Button>
               </div>
             </div>
-          </main>
-          {/* Transaction Status */}
-          {sig && (
-            <StatusBanner type="success">
-              ✅ Transaction confirmed: {""}
-              {sig}
-            </StatusBanner>
-          )}
 
-          {err && <StatusBanner type="error">❌ {err}</StatusBanner>}
-        </section>
-      )}
+            {/* TX STATUS */}
+            {sig && (
+              <StatusBanner type="success">
+                ✅ Transaction Confirmed: {sig}
+              </StatusBanner>
+            )}
 
-      {/* Grants List Section */}
-      <section className="space-y-4 mt-5">
-        <h2 className="text font-semibold">Current Grants</h2>
-        <p className="text-sm text-muted-foreground">
-          {grantee
-            ? "Grants for the selected hospital."
-            : "All grants for your patient record."}
-        </p>
+            {err && <StatusBanner type="error">❌ {err}</StatusBanner>}
+          </section>
 
-        {loadErr && (
-          <Alert variant="destructive">
-            <AlertDescription>{loadErr}</AlertDescription>
-          </Alert>
-        )}
-        {loading && (
-          <div className="flex items-center justify-center p-4">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            <span className="ml-2">Loading grants...</span>
-          </div>
-        )}
-
-        {/* Grant List - Collapsible */}
-        {!loading && paginatedGrants.length > 0 && (
-          <div className="flex flex-col gap-y-3">
-            {paginatedGrants.map((g) => (
-              <Collapsible key={g.pubkey} className="border p-4 roudned-xs">
-                <CollapsibleTrigger className="w-full flex justify-between text-left items-center gap-4 hover:cursor-pointer">
+          {/* CURRENT GRANTEE GRANTS - COLLAPSIBLE */}
+          <div className="flex flex-col gap-y-3 mt-6">
+            {currentGrants.map((g) => (
+              <Collapsible key={g.pubkey} className="border p-4 rounded-xs">
+                {/* Collapsible Header */}
+                <CollapsibleTrigger className="w-full flex justify-between items-center text-left gap-4 cursor-pointer">
                   <div className="flex-1 min-w-0">
-                    {/* --- UPDATED --- */}
                     <div className="font-semibold truncate text-sm">
-                      {/* Show hospital name from map, or fallback to grantee pubkey */}
-                      {hospitalMap[g.grantee] ?? g.grantee}
+                      {selectedHospital?.name ?? g.grantee}
                     </div>
+
                     <div className="text-sm text-muted-foreground space-x-2">
-                      <span>{getScopeText(g.scope)}</span>
+                      <span>{g.scope === 1 ? "Read" : "Write"}</span>
                       <span>&bull;</span>
                       <span
                         className={
@@ -649,87 +527,60 @@ export default function Page() {
                       </span>
                     </div>
                   </div>
-                  <div className="text-sm text-muted-foreground text-right whitespace-nowrap">
+
+                  <div className="text-sm text-muted-foreground whitespace-nowrap">
                     {new Date(g.createdAt * 1000).toLocaleDateString()}
                   </div>
-                  <ChevronsUpDown className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+
+                  <ChevronsUpDown className="h-4 w-4 text-muted-foreground" />
                 </CollapsibleTrigger>
 
-                <CollapsibleContent className="mt-4 pt-4 border-t space-y-3">
-                  <div className="space-y-2 text-xs text-muted-foreground">
-                    <div>
-                      <div className="font-semibold uppercase text-[10px]">
-                        Hospital Pubkey (Grantee)
-                      </div>
-                      <div className="flex gap-x-2">
-                        <div className="font-mono roudned-xs border bg-muted p-2 break-all text-foreground flex-1">
-                          {g.grantee}
-                        </div>
-                        {/* Copy button */}
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="icon"
-                          className="hover:cursor-pointer"
-                          onClick={async () => {
-                            try {
-                              await navigator.clipboard.writeText(g.grantee);
-                              toast.success(
-                                `Copied Hospital Pubkey: ${g.grantee}`
-                              );
-                            } catch {
-                              console.error("Clipboard copy failed");
-                            }
-                          }}
-                        >
-                          <ClipboardCopyIcon className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          className="hover:cursor-pointer"
-                          type="button"
-                          variant="outline"
-                          size="icon"
-                          onClick={() => {
-                            setFilterGranteeStr(g.grantee);
-                            setActiveGranteeStr(g.grantee);
-                          }}
-                        >
-                          <Search className="h-4 w-4" />
-                        </Button>
-                      </div>
+                {/* Collapsible Content */}
+                <CollapsibleContent className="mt-4 pt-4 border-t space-y-3 text-xs">
+                  {/* Grantee Pubkey */}
+                  <div>
+                    <div className="font-semibold uppercase text-[10px]">
+                      Hospital Pubkey (Grantee)
                     </div>
 
-                    <div>
-                      <div className="font-semibold uppercase text-[10px]">
-                        Grant PDA (TX)
-                      </div>
-                      <div className="font-mono roudned-xs border bg-muted p-2 break-all text-foreground">
-                        {g.pubkey}
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="font-semibold uppercase text-[10px]">
-                        Created By
-                      </div>
-                      <div className="font-mono roudned-xs border bg-muted p-2 break-all text-foreground">
-                        {g.createdBy}
+                    <div className="flex gap-x-2">
+                      <div className="font-mono border bg-muted p-2 rounded-xs break-all flex-1">
+                        {g.grantee}
                       </div>
                     </div>
                   </div>
 
-                  {/* Revoke button (only shows if a grantee is selected) */}
-                  {!g.revoked && grantee && (
+                  {/* Grant PDA */}
+                  <div>
+                    <div className="font-semibold uppercase text-[10px]">
+                      Grant PDA (TX)
+                    </div>
+                    <div className="font-mono border bg-muted p-2 rounded-xs break-all">
+                      {g.pubkey}
+                    </div>
+                  </div>
+
+                  {/* Created By */}
+                  <div>
+                    <div className="font-semibold uppercase text-[10px]">
+                      Created By
+                    </div>
+                    <div className="font-mono border bg-muted p-2 rounded-xs break-all">
+                      {g.createdBy}
+                    </div>
+                  </div>
+
+                  {/* Revoke Button */}
+                  {!g.revoked && (
                     <Button
-                      variant="outline"
+                      variant="destructive"
                       size="sm"
-                      className="mt-3"
                       onClick={async () => {
                         try {
                           await revokeOne(g.scope);
                           await loadGrants();
                         } catch (e: any) {
-                          setErr(e?.message ?? String(e));
+                          setErr(e.message);
                         }
                       }}
                     >
@@ -740,56 +591,8 @@ export default function Page() {
               </Collapsible>
             ))}
           </div>
-        )}
-
-        {/* No grants found */}
-        {!loading && grants.length === 0 && (
-          <p className="text-sm text-muted-foreground pt-4">No grants found.</p>
-        )}
-
-        {/* Pagination */}
-        {!loading && totalPages > 1 && (
-          <Pagination className="pt-4">
-            <PaginationContent>
-              <PaginationItem>
-                <PaginationPrevious
-                  href="#"
-                  onClick={goToPrevPage}
-                  aria-disabled={currentPage === 1}
-                  className={
-                    currentPage === 1 ? "pointer-events-none opacity-50" : ""
-                  }
-                />
-              </PaginationItem>
-
-              {Array.from({ length: totalPages }).map((_, i) => (
-                <PaginationItem key={i}>
-                  <PaginationLink
-                    href="#"
-                    isActive={currentPage === i + 1}
-                    onClick={(e) => goToPage(e, i + 1)}
-                  >
-                    {i + 1}
-                  </PaginationLink>
-                </PaginationItem>
-              ))}
-
-              <PaginationItem>
-                <PaginationNext
-                  href="#"
-                  onClick={goToNextPage}
-                  aria-disabled={currentPage === totalPages}
-                  className={
-                    currentPage === totalPages
-                      ? "pointer-events-none opacity-50"
-                      : ""
-                  }
-                />
-              </PaginationItem>
-            </PaginationContent>
-          </Pagination>
-        )}
-      </section>
+        </div>
+      )}
     </main>
   );
 }

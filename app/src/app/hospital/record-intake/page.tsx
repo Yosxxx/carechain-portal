@@ -32,7 +32,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { StatusBanner } from "@/components/status-banner";
 import { GeneralModal } from "@/components/general-modal";
 import { QrDisplay } from "@/components/qr-display";
-import { GetHospitalData } from "@/action/GetHospitalData";
+import { GetCurrentHospitalData } from "@/action/GetHospitalData";
 import { refreshCosignTxHelper } from "@/lib/helper/refreshCosignTx";
 import {
   findPatientPda,
@@ -191,7 +191,7 @@ export default function Page() {
       if (!program || !patientPk) {
         setPatientAccountOk(null);
         if (record?.patient_pubkey) {
-          setPatientCheckStatus("❌ Invalid Pubkey format");
+          setPatientCheckStatus("❌ Invalid Pubkey Format");
         } else {
           setPatientCheckStatus(null);
         }
@@ -262,7 +262,7 @@ export default function Page() {
   useEffect(() => {
     const fetchHospital = async () => {
       try {
-        const data = await GetHospitalData();
+        const data = await GetCurrentHospitalData();
         setHospitalData(data);
       } catch (err: unknown) {
         if (err instanceof Error)

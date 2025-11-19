@@ -160,7 +160,7 @@ export default function Page() {
       {patientOk && !loading && (
         <div className="flex gap-2 mt-2">
           <Input
-            placeholder="Search Records"
+            placeholder="Search Records..."
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);

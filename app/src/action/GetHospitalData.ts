@@ -6,7 +6,7 @@ import { GetCurrentUser } from "./GetUser";
 import { revalidatePath } from "next/cache";
 
 // ─── Fetch hospital data for logged-in admin ───
-export async function GetHospitalData() {
+export async function GetCurrentHospitalData() {
   const user = await GetCurrentUser();
   const admin = await VerifyAdmin(user.id);
 
@@ -21,6 +21,19 @@ export async function GetHospitalData() {
   if (!hospitalInfo) throw new Error("Hospital not found");
 
   return hospitalInfo;
+}
+
+//
+export async function GetPublicHospitalList() {
+  const supabase = await createServerClient();
+
+  const { data, error } = await supabase
+    .from("hospital_public")
+    .select("*")
+    .order("name", { ascending: true });
+
+  if (error) throw error;
+  return data;
 }
 
 // ─── Update hospital address ───

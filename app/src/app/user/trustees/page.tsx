@@ -162,7 +162,7 @@ export default function TrusteesPage() {
       <section className="relative mt-2">
         <div className="flex gap-x-2 items-center">
           <Input
-            placeholder="Trustee wallet pubkey"
+            placeholder="Trustee Wallet Public Key"
             value={trusteeStr}
             onChange={(e) => setTrusteeStr(e.target.value)}
             onFocus={() => setTrusteeValid(null)}
