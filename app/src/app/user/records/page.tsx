@@ -36,6 +36,7 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from "@/components/ui/tooltip";
+import AiRecordSummarizer from "@/components/AiRecordSummarizer";
 
 export default function Page() {
   const { publicKey } = useWallet();
@@ -54,6 +55,10 @@ export default function Page() {
     Record<string, boolean>
   >({});
   const perPage = 5;
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [summaryText, setSummaryText] = useState("");
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [cachedSummary, setCachedSummary] = useState<string | null>(null);
 
   // -------------------- Fetch On-Chain Records --------------------
   useEffect(() => {
@@ -122,6 +127,45 @@ export default function Page() {
   );
   const totalPages = Math.ceil(filteredRecords.length / perPage);
 
+  async function handleAISummary(forceRefresh = false) {
+    try {
+      setSummaryOpen(true);
+
+      if (!forceRefresh && cachedSummary) {
+        setSummaryText(cachedSummary);
+        return;
+      }
+
+      setSummaryLoading(true);
+      setSummaryText("");
+
+      const payload = records.map((r) => ({
+        created_at: r.createdAt,
+        doctor: r.doctor_name,
+        hospital: r.hospital_name,
+        diagnosis: r.diagnosis,
+        meds: r.medications,
+        description: r.description,
+      }));
+
+      const res = await fetch("/api/ai-summary", {
+        method: "POST",
+        body: JSON.stringify({ records: payload }),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const data = await res.json();
+      const summary = data.summary || "AI failed to summarize.";
+
+      setSummaryText(summary);
+      setCachedSummary(summary);
+    } catch (err: any) {
+      setSummaryText(err?.message || "Error generating summary.");
+    } finally {
+      setSummaryLoading(false);
+    }
+  }
+
   // -------------------- UI --------------------
   return (
     <main className="mb-5">
@@ -173,7 +217,19 @@ export default function Page() {
               setPage(1);
             }}
           />
-          <Button variant={"outline"}>AI Summary</Button>
+          <Button variant="outline" onClick={() => handleAISummary()}>
+            AI Summary
+          </Button>
+
+          <AiRecordSummarizer
+            open={summaryOpen}
+            onOpenChange={setSummaryOpen}
+            summaryText={summaryText}
+            summaryLoading={summaryLoading}
+            cachedSummary={cachedSummary}
+            handleAISummary={handleAISummary}
+          />
+
           <FilterButton
             options={[
               { label: "Default", value: null },

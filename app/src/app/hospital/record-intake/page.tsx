@@ -94,7 +94,7 @@ async function encUpload(
     fd.append("keywords", record.keywords || "");
     fd.append("description", record.description || "");
     if (record?.medications) {
-      fd.append("medications", JSON.stringify(record.medications));
+      record.medications.forEach((m) => fd.append("medications[]", m));
     }
   }
 

@@ -1,10 +1,13 @@
-import { GetHospitalData, updateAddress } from "@/action/GetHospitalData";
+import {
+  GetCurrentHospitalData,
+  updateAddress,
+} from "@/action/GetHospitalData";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
 export default async function Page() {
   // ─── Fetch hospital data directly on the server ───
-  const hospitalData = await GetHospitalData();
+  const hospitalData = await GetCurrentHospitalData();
 
   return (
     <main className="mb-5 space-y-6">

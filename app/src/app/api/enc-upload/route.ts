@@ -11,7 +11,7 @@ const toHex = (u8: Uint8Array) => Buffer.from(u8).toString("hex");
 const b64 = (u8: Uint8Array) => Buffer.from(u8).toString("base64");
 
 function deriveNonce(base: Uint8Array, idx: number) {
-  const out = new Uint8Array(base); // copy
+  const out = new Uint8Array(base);
   out[out.length - 4] = idx & 0xff;
   out[out.length - 3] = (idx >> 8) & 0xff;
   out[out.length - 2] = (idx >> 16) & 0xff;
@@ -40,21 +40,22 @@ export async function POST(req: Request) {
   // =========================
   // A) Parse multipart form
   // =========================
+
   let file: File | null;
   let contentType = "application/octet-stream";
   let patientPk_b64: string | null;
   let rsCreatorPk_b64: string | null;
+
   let hospital_name = "";
   let doctor_name = "";
   let diagnosis = "";
   let keywords = "";
-
-  // eslint-disable-next-line prefer-const
-  let medications: string[] = [];
   let description = "";
+  let medications: string[] = [];
 
   try {
     const form = await req.formData();
+
     file = form.get("file") as File | null;
     contentType = (form.get("contentType") as string) || contentType;
     patientPk_b64 = (form.get("patientPk_b64") as string) || null;
@@ -66,6 +67,9 @@ export async function POST(req: Request) {
     keywords = (form.get("keywords") as string) || "";
     description = (form.get("description") as string) || "";
 
+    // ✔ FIXED: must be inside the try block (form exists here)
+    medications = form.getAll("medications") as string[];
+
     if (!file) return fail("A: file missing", "file missing", 400);
     if (!patientPk_b64)
       return fail("A: patientPk_b64 missing", "patientPk_b64 missing", 400);
@@ -76,8 +80,9 @@ export async function POST(req: Request) {
   }
 
   // ======================================
-  // B) Read file & init crypto (libsodium)
+  // B) Read file & init crypto
   // ======================================
+
   let plainBuf: Buffer;
   try {
     await sodium.ready;
@@ -88,8 +93,9 @@ export async function POST(req: Request) {
   }
 
   // ===========================
-  // C) Encrypt + BLAKE2b hash
+  // C) Encrypt + hash
   // ===========================
+
   let cipherHash!: Uint8Array;
   let recordEnc!: Buffer;
   let nonceBase!: Uint8Array;
@@ -110,6 +116,7 @@ export async function POST(req: Request) {
     for (let off = 0, i = 0; off < plainBuf.length; i++) {
       const end = Math.min(off + CHUNK_SIZE, plainBuf.length);
       const nonce = deriveNonce(nonceBase, i);
+
       const cipher = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(
         plainBuf.subarray(off, end),
         aad,
@@ -117,6 +124,7 @@ export async function POST(req: Request) {
         nonce,
         DEK
       );
+
       const cbuf = Buffer.from(cipher);
       chunks.push(cbuf);
       sodium.crypto_generichash_update(gh, cipher);
@@ -130,21 +138,22 @@ export async function POST(req: Request) {
   }
 
   // ==========================================
-  // D) KMS wrap DEK + sealed-box per grantee
+  // D) Wrap DEK + sealed-box
   // ==========================================
+
   let Wkms_bytes!: Uint8Array;
   let edekPatient_b64!: string;
   let edekHospital_b64!: string;
   let kmsRef!: string;
 
   try {
-    // 🔥 Lazy import to avoid build-time Vault evaluation
     const { VaultKmsAdapter } = await import("@/lib/vaultKmsAdapter");
     const kms = await VaultKmsAdapter.init();
-    kmsRef = kms.keyRef;
 
+    kmsRef = kms.keyRef;
     Wkms_bytes = await kms.encryptKey(DEK, { recordId: aadStr });
-    DEK.fill(0); // wipe plaintext DEK
+
+    DEK.fill(0);
 
     const seal = (pk_b64: string) => {
       const edPk = Buffer.from(pk_b64, "base64");
@@ -160,10 +169,12 @@ export async function POST(req: Request) {
   }
 
   // ============================
-  // E) Upload to Pinata
+  // E) Upload to IPFS
   // ============================
+
   let cidEnc = "",
     metaCid = "";
+
   try {
     const pinata = new PinataSDK({
       pinataJwt: process.env.PINATA_JWT!,
@@ -172,7 +183,6 @@ export async function POST(req: Request) {
     });
 
     const blob = new Blob([recordEnc], { type: "application/octet-stream" });
-
     const fileUpload: any = Object.assign(blob, { name: "record.enc" });
 
     const uploadFile = await pinata.upload.public
@@ -195,6 +205,7 @@ export async function POST(req: Request) {
       original_content_type: contentType,
       created_at: Math.floor(Date.now() / 1000),
 
+      // ✔ your metadata:
       hospital_name,
       doctor_name,
       diagnosis,
@@ -210,8 +221,9 @@ export async function POST(req: Request) {
   }
 
   // ============================
-  // F) Return result
+  // F) Return response
   // ============================
+
   try {
     return NextResponse.json({
       cidEnc,

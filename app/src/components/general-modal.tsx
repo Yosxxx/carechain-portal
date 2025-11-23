@@ -92,7 +92,9 @@ export function GeneralModal({
 
         {desc && (
           <DialogDescription className="flex items-center justify-center flex-col space-y-5">
-            <div>{desc}</div>
+            <pre className="whitespace-pre-wrap text-left font-mono text-sm leading-relaxed w-full">
+              {desc}
+            </pre>
 
             {copyable && (
               <Button
