@@ -1,8 +1,14 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { useState, useMemo, useEffect } from "react";
-import { Search, ChevronsUpDown, ExternalLink, QrCodeIcon } from "lucide-react";
+import { useState, useMemo, useEffect, useRef } from "react";
+import {
+  Search,
+  ChevronsUpDown,
+  ExternalLink,
+  QrCodeIcon,
+  Loader2,
+} from "lucide-react";
 
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -38,12 +44,14 @@ import { fetchPatientRecords } from "@/lib/helper/fetchPatientRecords";
 import { decryptAndDownloadHelper } from "@/lib/helper/decryptAndDownload";
 import { deriveAttachmentStatus } from "@/lib/helper/attachments";
 import { filterRecords, paginate } from "@/lib/helper/recordFilters";
+
+import AiRecordSummarizer from "@/components/AiRecordSummarizer";
 import { GeneralModal } from "@/components/general-modal";
 
 export default function Page() {
-  // ────────────────────────────────────────────────
-  // ░ State & Hooks
-  // ────────────────────────────────────────────────
+  // ─────────────────────────────────────────────
+  // STATE
+  // ─────────────────────────────────────────────
   const { QrScanner } = useQrScanner();
   const { publicKey: hospitalWallet } = useWallet();
   const { program, programId, ready } = useProgram();
@@ -65,11 +73,59 @@ export default function Page() {
   const [scanning, setScanning] = useState(false);
 
   const perPage = 5;
-  const disabled = !ready || !program || !hospitalWallet;
+  const disabledBase = !ready || !program || !hospitalWallet;
+  const requestIdRef = useRef(0);
 
-  // ────────────────────────────────────────────────
-  // ░ Derived Lists (Filtered + Paginated)
-  // ────────────────────────────────────────────────
+  // ─────────────────────────────────────────────
+  // AI Summary
+  // ─────────────────────────────────────────────
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [summaryText, setSummaryText] = useState("");
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [cachedSummary, setCachedSummary] = useState<string | null>(null);
+
+  async function handleAISummary(forceRefresh = false) {
+    try {
+      setSummaryOpen(true);
+
+      if (!forceRefresh && cachedSummary) {
+        setSummaryText(cachedSummary);
+        return;
+      }
+
+      setSummaryLoading(true);
+      setSummaryText("");
+
+      const payload = records.map((r) => ({
+        created_at: r.createdAt,
+        doctor: r.doctor_name,
+        hospital: r.hospital_name,
+        diagnosis: r.diagnosis,
+        meds: r.medications,
+        description: r.description,
+      }));
+
+      const res = await fetch("/api/ai-summary", {
+        method: "POST",
+        body: JSON.stringify({ records: payload }),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const data = await res.json();
+      const summary = data.summary || "AI failed to summarize.";
+
+      setSummaryText(summary);
+      setCachedSummary(summary);
+    } catch (err: any) {
+      setSummaryText(err?.message || "Error generating summary.");
+    } finally {
+      setSummaryLoading(false);
+    }
+  }
+
+  // ─────────────────────────────────────────────
+  // FILTERING & PAGINATION
+  // ─────────────────────────────────────────────
   const filteredRecords = useMemo(
     () => filterRecords(records, search, filterMode),
     [records, search, filterMode]
@@ -82,160 +138,158 @@ export default function Page() {
     [filteredRecords, page, perPage]
   );
 
-  // ────────────────────────────────────────────────
-  // ░ Attachment Status
-  // ────────────────────────────────────────────────
+  // ─────────────────────────────────────────────
+  // ATTACHMENT STATUS
+  // ─────────────────────────────────────────────
   useEffect(() => {
-    if (!records?.length) {
-      setDownloadAllowed({});
-      return;
-    }
+    if (!records.length) return setDownloadAllowed({});
     setDownloadAllowed(deriveAttachmentStatus(records));
   }, [records]);
 
-  // ────────────────────────────────────────────────
-  // ░ Fetch Patient Records
-  // ────────────────────────────────────────────────
+  // ─────────────────────────────────────────────
+  // FETCH PATIENT RECORDS
+  // ─────────────────────────────────────────────
   async function handleFetchPatientRecords() {
+    const currentRequestId = ++requestIdRef.current;
+
     try {
       setRecords([]);
       setErr("");
-      setStatus("Loading...");
+      setStatus("");
       setLoading(true);
       setHasGrant(null);
-      setDownloadAllowed({});
+      setCachedSummary(null);
 
       const patientWalletPk = new PublicKey(patientInput.trim());
       const patientPda = findPatientPda(programId, patientWalletPk);
 
-      // Check patient registration
+      // Validate patient
       // @ts-expect-error anchor typing
       const pAcc = await program!.account.patient.fetchNullable(patientPda);
       if (!pAcc) throw new Error("Patient not registered.");
 
-      // Validate read grant
+      // Validate Read Grant
       const grantReadPda = findGrantPda(
         programId,
         patientPda,
         hospitalWallet!,
         SCOPE_READ
       );
+
       // @ts-expect-error anchor typing
       const grantAcc = await program!.account.grant.fetchNullable(grantReadPda);
-      if (
-        !grantAcc ||
-        grantAcc.revoked ||
-        (Number(grantAcc.expiresAt) &&
-          Number(grantAcc.expiresAt) <= Math.floor(Date.now() / 1000))
-      ) {
-        setHasGrant(false);
+      const now = Math.floor(Date.now() / 1000);
+
+      const expired =
+        Number(grantAcc?.expiresAt ?? 0) !== 0 &&
+        Number(grantAcc?.expiresAt ?? 0) <= now;
+
+      if (!grantAcc || grantAcc.revoked || expired) {
+        if (currentRequestId === requestIdRef.current) setHasGrant(false);
         throw new Error("No active read grant for this patient.");
       }
 
-      setHasGrant(true);
+      if (currentRequestId === requestIdRef.current) setHasGrant(true);
 
-      // Fetch all records
-      const records = await fetchPatientRecords(
-        program!,
-        programId,
-        patientPda
-      );
-      setRecords(records);
+      // Fetch Records
+      const recs = await fetchPatientRecords(program!, programId, patientPda);
+      if (currentRequestId === requestIdRef.current) setRecords(recs);
 
-      setStatus("Records Fetched Successfully");
-      toast.success("Records Fetched Successfully");
+      if (currentRequestId === requestIdRef.current)
+        setStatus("Records fetched successfully.");
     } catch (e: any) {
-      const message = e.message || String(e);
-      setErr(message);
+      if (currentRequestId !== requestIdRef.current) return;
+      setErr(e?.message ?? String(e));
       setStatus("");
-      toast.error(message);
     } finally {
-      setLoading(false);
+      if (currentRequestId === requestIdRef.current) setLoading(false);
     }
   }
 
-  // ────────────────────────────────────────────────
-  // ░ Decrypt + Download
-  // ────────────────────────────────────────────────
+  // ─────────────────────────────────────────────
+  // CLEAR (Option C)
+  // ─────────────────────────────────────────────
+  function handleClear() {
+    requestIdRef.current += 1;
+    setPatientInput("");
+    setRecords([]);
+    setErr("");
+    setStatus("");
+    setHasGrant(null);
+    setDownloadAllowed({});
+    setSearch("");
+    setFilterMode(null);
+    setPage(1);
+    setLoading(false);
+    setCachedSummary(null);
+    toast.info("Search cleared.");
+  }
+
+  // ─────────────────────────────────────────────
+  // DOWNLOAD
+  // ─────────────────────────────────────────────
   async function handleDecryptAndDownload(rec: Rec) {
     if (downloadAllowed[rec.pda] === false) {
-      toast.info("This record only contains metadata and no file attachments.");
+      toast.info("This record has no file attachments.");
       return;
     }
 
     try {
       setStatus("Decrypting...");
       await decryptAndDownloadHelper(rec, setErr);
-      setStatus("Download complete.");
       toast.success("Decrypted file downloaded.");
+      setStatus("Download complete.");
     } catch (e: any) {
-      const msg = e?.message ?? "Decryption failed";
-      setErr(msg);
+      toast.error(e?.message ?? "Decryption failed");
       setStatus("");
-      toast.error(msg);
     }
   }
 
-  // ────────────────────────────────────────────────
-  // ░ Render
-  // ────────────────────────────────────────────────
+  // ─────────────────────────────────────────────
+  // UI
+  // ─────────────────────────────────────────────
   return (
-    <main className="">
-      {/* ── Header ────────────────────────────── */}
+    <main>
+      {/* HEADER */}
       <header className="font-architekt p-2 border rounded-xs">
         <div className="flex font-bold gap-x-2 items-center">
           <Search size={20} /> Search for Patients
         </div>
       </header>
 
-      {/* ── Status Banners ────────────────────── */}
-      <div className="space-y-2 my-2">
-        {err && <StatusBanner type="error">❌ {err}</StatusBanner>}
-        {status && !err && status.toLowerCase().includes("loading") && (
-          <StatusBanner type="info">⏳ {status}</StatusBanner>
-        )}
-        {status && !err && status.startsWith("✅") && (
-          <StatusBanner type="success">{status}</StatusBanner>
-        )}
-        {status && !err && status.startsWith("ℹ️") && (
-          <StatusBanner type="info">{status}</StatusBanner>
-        )}
-        {hasGrant === false && (
-          <StatusBanner type="warning">
-            ⚠️ No active read grant. Ask patient to authorize this hospital.
-          </StatusBanner>
-        )}
-      </div>
-
-      {/* ── Controls ──────────────────────────── */}
-      <div className="mt-2 flex gap-x-3 mb-5">
+      {/* CONTROLS */}
+      <div className="mt-2 flex gap-x-3 mb-3">
         <Input
-          placeholder="Input Patient Publick Key"
+          placeholder="Input Patient Public Key"
           value={patientInput}
           onChange={(e) => setPatientInput(e.target.value)}
+          disabled={disabledBase || loading}
         />
+
         <Button
           onClick={handleFetchPatientRecords}
-          disabled={disabled || loading || !patientInput.trim()}
+          disabled={disabledBase || loading || !patientInput.trim()}
           variant="outline"
         >
-          {loading ? "Loading..." : "Search"}
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Search"}
         </Button>
+
+        <Button
+          variant="outline"
+          onClick={() => handleAISummary()}
+          disabled={loading || records.length === 0}
+        >
+          AI Summary
+        </Button>
+
         <Button
           variant="destructive"
-          disabled={!patientInput}
-          onClick={() => {
-            setPatientInput("");
-            setRecords([]);
-            setErr("");
-            setStatus("");
-            setHasGrant(null);
-            setDownloadAllowed({});
-            toast.info("Search cleared.");
-          }}
+          disabled={!patientInput && records.length === 0 && !status && !err}
+          onClick={handleClear}
         >
           Clear
         </Button>
+
         <FilterButton
           options={[
             { label: "Default", value: null },
@@ -249,13 +303,51 @@ export default function Page() {
             setFilterMode(v);
             setPage(1);
           }}
+          disabled={loading || records.length === 0}
         />
-        <Button variant="outline" onClick={() => setScanning(true)}>
-          <QrCodeIcon />
+
+        <Button
+          variant="outline"
+          onClick={() => setScanning(true)}
+          disabled={disabledBase || loading}
+        >
+          <QrCodeIcon className="w-4 h-4" />
         </Button>
       </div>
 
-      {/* ── Record List ───────────────────────── */}
+      {/* INTERNAL SEARCH */}
+      {records.length > 0 && (
+        <Input
+          placeholder="Filter within records..."
+          className="mb-3"
+          disabled={loading}
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPage(1);
+          }}
+        />
+      )}
+
+      {/* STATUS BANNERS */}
+      <div className="space-y-2 my-2">
+        {err && <StatusBanner type="error">❌ {err}</StatusBanner>}
+        {loading && (
+          <StatusBanner type="info">
+            <Loader2 className="w-4 h-4 animate-spin" /> Fetching...
+          </StatusBanner>
+        )}
+        {hasGrant === false && !loading && (
+          <StatusBanner type="warning">
+            No active read grant for this patient.
+          </StatusBanner>
+        )}
+        {status && !loading && !err && (
+          <StatusBanner type="success">{status}</StatusBanner>
+        )}
+      </div>
+
+      {/* RECORD LIST */}
       {hasGrant && records.length > 0 && (
         <div className="flex flex-col gap-y-4 mb-5">
           {paginated.map((rec) => (
@@ -267,35 +359,39 @@ export default function Page() {
                   </div>
                   {rec.keywords && (
                     <div className="text-sm text-muted-foreground space-x-2">
-                      <span>{rec.keywords}</span>
+                      {rec.keywords}
                     </div>
                   )}
                 </div>
+
                 <div className="text-sm text-muted-foreground whitespace-nowrap">
                   {new Date(rec.createdAt).toLocaleDateString()}
                 </div>
-                <ChevronsUpDown className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+
+                <ChevronsUpDown className="h-4 w-4 text-muted-foreground" />
               </CollapsibleTrigger>
 
               <CollapsibleContent className="mt-4 space-y-4 text-sm">
+                {/* HOSPITAL + DOCTOR */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
                     <div className="text-xs font-medium">Hospital Name</div>
                     <div className="font-mono border p-2 rounded-xs">
-                      {rec.hospital_name || "N/A"}
+                      {rec.hospital_name}
                     </div>
                   </div>
                   <div>
                     <div className="text-xs font-medium">Doctor Name</div>
                     <div className="font-mono border p-2 rounded-xs">
-                      {rec.doctor_name || "N/A"}
+                      {rec.doctor_name}
                     </div>
                   </div>
                 </div>
 
+                {/* DESCRIPTION */}
                 {rec.description && (
                   <>
-                    <Separator className="my-2" />
+                    <Separator />
                     <div>
                       <div className="text-xs font-medium">Description</div>
                       <p className="whitespace-pre-wrap border p-2 rounded-xs min-h-52 max-h-52">
@@ -305,6 +401,7 @@ export default function Page() {
                   </>
                 )}
 
+                {/* SOLSCAN LINK */}
                 {rec.txSignature && (
                   <div>
                     <div className="text-xs font-medium">
@@ -312,21 +409,22 @@ export default function Page() {
                     </div>
                     <a
                       href={`https://solscan.io/tx/${rec.txSignature}?cluster=devnet`}
+                      className="flex items-center gap-2 text-blue-600 underline"
                       target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-2 text-blue-600 hover:text-blue-800 underline"
                     >
-                      View on Solscan <ExternalLink className="w-4 h-4" />
+                      View on Solscan <ExternalLink className="h-4 w-4" />
                     </a>
                   </div>
                 )}
 
-                <Separator className="my-2" />
+                <Separator />
+
+                {/* DOWNLOAD */}
                 <div className="pt-3 border-t mt-3">
                   <Button
-                    onClick={() => handleDecryptAndDownload(rec)}
                     variant="secondary"
                     disabled={downloadAllowed[rec.pda] === false}
+                    onClick={() => handleDecryptAndDownload(rec)}
                   >
                     {downloadAllowed[rec.pda] === false
                       ? "No Attachments"
@@ -339,7 +437,12 @@ export default function Page() {
         </div>
       )}
 
-      {/* ── Pagination ───────────────────────── */}
+      {/* NO RECORDS */}
+      {hasGrant && !loading && records.length === 0 && (
+        <p className="text-muted-foreground mt-4">No records found.</p>
+      )}
+
+      {/* PAGINATION */}
       {filteredRecords.length > perPage && (
         <Pagination className="mb-5">
           <PaginationContent>
@@ -352,6 +455,7 @@ export default function Page() {
                 }}
               />
             </PaginationItem>
+
             {Array.from({ length: totalPages }).map((_, i) => (
               <PaginationItem key={i}>
                 <PaginationLink
@@ -366,6 +470,7 @@ export default function Page() {
                 </PaginationLink>
               </PaginationItem>
             ))}
+
             <PaginationItem>
               <PaginationNext
                 href="#"
@@ -379,7 +484,7 @@ export default function Page() {
         </Pagination>
       )}
 
-      {/* ── QR Scanner ───────────────────────── */}
+      {/* QR SCANNER */}
       {scanning && (
         <GeneralModal
           open={scanning}
@@ -390,8 +495,8 @@ export default function Page() {
         >
           <div className="p-4">
             <QrScanner
-              onResult={(text) => {
-                setPatientInput(text);
+              onResult={(pk) => {
+                setPatientInput(pk);
                 setScanning(false);
                 toast.success("QR decoded successfully");
               }}
@@ -399,6 +504,16 @@ export default function Page() {
           </div>
         </GeneralModal>
       )}
+
+      {/* AI SUMMARY MODAL */}
+      <AiRecordSummarizer
+        open={summaryOpen}
+        onOpenChange={setSummaryOpen}
+        summaryText={summaryText}
+        summaryLoading={summaryLoading}
+        cachedSummary={cachedSummary}
+        handleAISummary={handleAISummary}
+      />
     </main>
   );
 }

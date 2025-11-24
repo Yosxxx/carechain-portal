@@ -308,9 +308,7 @@ export default function Page() {
           setPatientCheckStatus("Patient account exists on-chain.");
         } else {
           setPatientAccountOk(false);
-          setPatientCheckStatus(
-            "Patient account not found (not registered)."
-          );
+          setPatientCheckStatus("Patient account not found (not registered).");
         }
       } catch (e: any) {
         setPatientAccountOk(false);
@@ -718,8 +716,8 @@ export default function Page() {
               Upload A Medical Record Bundle
             </div>
             <p>
-              Needs To Be Formated. Head{" "}
-              <Link href={"/record"} className="underline">
+              Make Sure Zip Is Formatted. Head{" "}
+              <Link href={"/create-record"} className="underline">
                 Here.
               </Link>
             </p>
