@@ -160,7 +160,7 @@ export default function TrusteeGrantPage() {
         .rpc();
 
       setSig(txSig);
-      setStatus("✅ Grant successfully created and submitted.");
+      setStatus("Grant successfully created and submitted.");
     } catch (e: any) {
       setErr(e?.message ?? String(e));
     }
@@ -202,7 +202,7 @@ export default function TrusteeGrantPage() {
         )}
         {trusteeOfPatient === true && (
           <StatusBanner type="success">
-            ✅ You are an active trustee for this patient.
+            You are an active trustee for this patient.
           </StatusBanner>
         )}
       </div>
@@ -230,7 +230,7 @@ export default function TrusteeGrantPage() {
         {hospital && (
           <StatusBanner type="success">
             <span className="font-medium font-mono">
-              ✅ Hospital verified on-chain.
+              Hospital verified on-chain.
             </span>
           </StatusBanner>
         )}

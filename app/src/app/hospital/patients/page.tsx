@@ -142,7 +142,7 @@ export default function Page() {
       );
       setRecords(records);
 
-      setStatus("✅ Records Fetched Successfully");
+      setStatus("Records Fetched Successfully");
       toast.success("Records Fetched Successfully");
     } catch (e: any) {
       const message = e.message || String(e);
@@ -166,7 +166,7 @@ export default function Page() {
     try {
       setStatus("Decrypting...");
       await decryptAndDownloadHelper(rec, setErr);
-      setStatus("✅ Download complete.");
+      setStatus("Download complete.");
       toast.success("Decrypted file downloaded.");
     } catch (e: any) {
       const msg = e?.message ?? "Decryption failed";

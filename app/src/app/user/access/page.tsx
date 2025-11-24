@@ -497,7 +497,7 @@ export default function Page() {
             {/* TX STATUS */}
             {sig && (
               <StatusBanner type="success">
-                ✅ Transaction Confirmed: {sig}
+                Transaction Confirmed: {sig}
               </StatusBanner>
             )}
 

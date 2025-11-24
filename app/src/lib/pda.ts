@@ -32,7 +32,6 @@ export const findPatientPda = (pid: PublicKey, patientPk: PublicKey) =>
     pid
   )[0];
 
-// ✅ FIXED: must use the *Patient PDA* as seed, not patient’s wallet pubkey
 export const findPatientSeqPda = (pid: PublicKey, patientPda: PublicKey) =>
   PublicKey.findProgramAddressSync(
     [Buffer.from("patient_seq"), patientPda.toBuffer()],

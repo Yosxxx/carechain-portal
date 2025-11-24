@@ -305,11 +305,11 @@ export default function Page() {
 
         if (pAcc) {
           setPatientAccountOk(true);
-          setPatientCheckStatus("✅ Patient account exists on-chain.");
+          setPatientCheckStatus("Patient account exists on-chain.");
         } else {
           setPatientAccountOk(false);
           setPatientCheckStatus(
-            "❌ Patient account not found (not registered)."
+            "Patient account not found (not registered)."
           );
         }
       } catch (e: any) {
@@ -749,14 +749,14 @@ export default function Page() {
                   "Patient Must Grant Write Access To This Hospital."}
               </StatusBanner>
             ) : hospitalOk && patientAccountOk && grantOk ? (
-              <StatusBanner type="success">✅ All Checks Passed</StatusBanner>
+              <StatusBanner type="success">All Checks Passed</StatusBanner>
             ) : null}
           </div>
 
           {/* --- RECORD FORM --- */}
           {record && zipName && (
             <section className="flex flex-col gap-y-3 border p-3 mt-5 rounded-xs">
-              <h1 className="text-2xl font-bold font-architekt">{zipName}</h1>
+              <h1 className="text-2xl font-bold">{zipName}</h1>
 
               <div className="flex flex-col gap-8 mt-6">
                 {/* ──────────────── 🧩 PATIENT SECTION ──────────────── */}

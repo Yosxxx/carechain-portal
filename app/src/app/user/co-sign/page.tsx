@@ -49,7 +49,7 @@ export default function CoSignPage() {
       const sig = await connection.sendRawTransaction(signed.serialize());
       await connection.confirmTransaction(sig, "confirmed");
 
-      setStatus(`✅ Submitted: ${sig}`);
+      setStatus(`Submitted: ${sig}`);
       toast.success("Transaction Sent");
     } catch (e: any) {
       setStatus(`❌ ${e?.message || String(e)}`);
@@ -121,7 +121,7 @@ export default function CoSignPage() {
               onResult={(text) => {
                 setB64(text);
                 setScanModalOpen(false);
-                setStatus("✅ QR Decoded Successfully");
+                setStatus("QR Decoded Successfully");
               }}
             />
           </div>

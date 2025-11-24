@@ -60,6 +60,38 @@ export default function Page() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [cachedSummary, setCachedSummary] = useState<string | null>(null);
 
+  async function refreshRecords() {
+    if (!ready || !program || !publicKey) return;
+
+    try {
+      setLoading(true);
+      setErr("");
+
+      const patientPda = findPatientPda(programId, publicKey);
+
+      // @ts-expect-error anchor typing
+      const pAcc = await program.account.patient.fetchNullable(patientPda);
+      if (!pAcc) {
+        setPatientOk(false);
+        setRecords([]);
+        return;
+      }
+
+      setPatientOk(true);
+
+      const out = await fetchPatientRecords(program, programId, patientPda);
+      setRecords(out);
+    } catch (e: any) {
+      setErr(e?.message ?? String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    refreshRecords();
+  }, [ready, program, programId, publicKey]);
+
   // -------------------- Fetch On-Chain Records --------------------
   useEffect(() => {
     (async () => {
@@ -176,6 +208,60 @@ export default function Page() {
         </div>
       </header>
 
+      {/* ===== Search + Filter ===== */}
+      <div className="flex gap-2 mt-2">
+        {/* Search Input */}
+        <Input
+          placeholder="Search Records..."
+          value={search}
+          disabled={loading}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPage(1);
+          }}
+        />
+
+        {/* AI Summary Button */}
+        <Button
+          variant="outline"
+          onClick={() => handleAISummary()}
+          disabled={loading}
+        >
+          AI Summary
+        </Button>
+
+        <Button variant="outline" onClick={refreshRecords} disabled={loading}>
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Refresh"}
+        </Button>
+
+        {/* AI Summary Dialog */}
+        <AiRecordSummarizer
+          open={summaryOpen}
+          onOpenChange={setSummaryOpen}
+          summaryText={summaryText}
+          summaryLoading={summaryLoading}
+          cachedSummary={cachedSummary}
+          handleAISummary={handleAISummary}
+        />
+
+        {/* Sort / Filter Dropdown */}
+        <FilterButton
+          options={[
+            { label: "Default", value: null },
+            { label: "Doctor (A-Z)", value: "doctor" },
+            { label: "Hospital (A-Z)", value: "hospital" },
+            { label: "Date ↑", value: "dateAsc" },
+            { label: "Date ↓", value: "dateDesc" },
+          ]}
+          selected={filterMode}
+          onChange={(val) => {
+            setFilterMode(val);
+            setPage(1);
+          }}
+          disabled={loading}
+        />
+      </div>
+
       {/* ===== Status Banners ===== */}
       <div className="mt-2">
         {!publicKey && (
@@ -200,72 +286,34 @@ export default function Page() {
 
         {patientOk && !loading && records.length > 0 && (
           <StatusBanner type="success">
-            ✅ Successfully Fetched {records.length} Record
+            Successfully Fetched {records.length} Record
             {records.length > 1 ? "s" : ""}
           </StatusBanner>
         )}
       </div>
 
-      {/* ===== Search + Filter ===== */}
-      {patientOk && !loading && (
-        <div className="flex gap-2 mt-2">
-          <Input
-            placeholder="Search Records..."
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-          />
-          <Button variant="outline" onClick={() => handleAISummary()}>
-            AI Summary
-          </Button>
-
-          <AiRecordSummarizer
-            open={summaryOpen}
-            onOpenChange={setSummaryOpen}
-            summaryText={summaryText}
-            summaryLoading={summaryLoading}
-            cachedSummary={cachedSummary}
-            handleAISummary={handleAISummary}
-          />
-
-          <FilterButton
-            options={[
-              { label: "Default", value: null },
-              { label: "Doctor (A-Z)", value: "doctor" },
-              { label: "Hospital (A-Z)", value: "hospital" },
-              { label: "Date ↑", value: "dateAsc" },
-              { label: "Date ↓", value: "dateDesc" },
-            ]}
-            selected={filterMode}
-            onChange={(val) => {
-              setFilterMode(val);
-              setPage(1);
-            }}
-          />
-        </div>
-      )}
-
       {/* ===== Record List ===== */}
-      {!loading && (
+      {loading ? null : filteredRecords.length > 0 ? (
         <div className="flex flex-col gap-y-4 mt-5 mb-5">
           {paginated.map((rec) => (
-            <Collapsible key={rec.pda} className="border p-4 rounded-xs ">
+            <Collapsible key={rec.pda} className="border p-4 rounded-xs">
               <CollapsibleTrigger className="w-full flex justify-between text-left items-center gap-4 hover:cursor-pointer">
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold truncate text-sm">
                     {rec.diagnosis || "Untitled Diagnosis"}
                   </div>
+
                   {rec.keywords && (
                     <div className="text-sm text-muted-foreground space-x-2">
                       <span>{rec.keywords}</span>
                     </div>
                   )}
                 </div>
+
                 <div className="text-sm text-muted-foreground text-right whitespace-nowrap">
                   {new Date(rec.createdAt).toLocaleDateString()}
                 </div>
+
                 <ChevronsUpDown className="h-4 w-4 text-muted-foreground flex-shrink-0" />
               </CollapsibleTrigger>
 
@@ -301,7 +349,7 @@ export default function Page() {
                               asChild
                               className="hover:cursor-pointer"
                             >
-                              <div className="w-full h-10 border rounded-xs hover:bg-card flex items-center justify-center text-center cursor-default select-none overflow-hidden ">
+                              <div className="w-full h-10 border rounded-xs hover:bg-card flex items-center justify-center text-center cursor-default select-none overflow-hidden">
                                 <span className="truncate w-full px-1">
                                   {m}
                                 </span>
@@ -366,6 +414,8 @@ export default function Page() {
             </Collapsible>
           ))}
         </div>
+      ) : (
+        <p className="text-muted-foreground mt-5">No records found.</p>
       )}
 
       {/* ===== Pagination ===== */}
